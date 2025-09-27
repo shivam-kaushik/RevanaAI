@@ -8,8 +8,7 @@ class Config:
     DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:Password1!@localhost:5432/Revana")
     
     # OpenAI
-    OPENAI_API_KEY = os.getenv("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")
-    
+    OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
     # Application
     HOST = os.getenv("HOST", "localhost")
     PORT = int(os.getenv("PORT", 8000))
