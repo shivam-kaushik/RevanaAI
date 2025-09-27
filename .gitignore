@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+venv/
+.env
+
+# Jupyter Notebooks
+.ipynb_checkpoints
+
+# Data files
+*.csv
+*.xlsx
+*.tsv
+*.db
+*.sqlite
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# VS Code
+.vscode/
+
+# Ignore model weights and binaries
+*.pth
+*.pt
+*.h5
+*.ckpt
+*.dll
+*.lib
+*.pyd
+
+# Ignore large files
+/data/
