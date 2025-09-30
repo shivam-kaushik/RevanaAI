@@ -81,14 +81,40 @@ async def root():
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
-    active_dataset = vector_db.get_active_dataset()
-    tables = file_processor.list_tables() if hasattr(file_processor, 'list_tables') else []
-    return {
-        "status": "healthy", 
-        "message": "Server is running",
-        "active_dataset": active_dataset,
-        "database_tables": tables
-    }
+    try:
+        tables = file_processor.list_tables()
+        table_count = len(tables)
+        
+        # Get database info
+        db_info = "PostgreSQL"  # Since we're using PostgreSQL now
+        if hasattr(file_processor, 'db_config'):
+            db_info = f"PostgreSQL ({file_processor.db_config.get('dbname', 'revana')})"
+        
+        # Get latest table info if available
+        latest_table_info = None
+        if tables:
+            try:
+                latest_table_info = file_processor.get_table_info(tables[0])
+            except:
+                pass
+        
+        return {
+            "status": "healthy", 
+            "message": "Server is running",
+            "database": db_info,
+            "table_count": table_count,
+            "tables": tables,
+            "latest_table": latest_table_info
+        }
+    except Exception as e:
+        logger.error(f"Health check error: {e}")
+        return {
+            "status": "healthy", 
+            "message": "Server is running (database info unavailable)",
+            "database": "Unknown",
+            "table_count": 0,
+            "tables": []
+        }
 
 @app.post("/upload")
 async def upload_file(file: UploadFile = File(...)):
@@ -102,9 +128,15 @@ async def upload_file(file: UploadFile = File(...)):
             return {
                 "success": True,
                 "message": f"File uploaded successfully! Created table '{result['table_name']}' with {result['row_count']} rows.",
-                "dataset_info": result,
+                "dataset_info": {
+                    "table_name": result["table_name"],
+                    "row_count": result["row_count"],
+                    "column_count": result["column_count"],
+                    "columns": result["columns"],
+                    "database": result.get("database", "PostgreSQL")  # Use actual database from processor
+                },
                 "table_name": result["table_name"],
-                "database": "revana_database.db"
+                "database": result.get("database", "PostgreSQL")
             }
         else:
             return {

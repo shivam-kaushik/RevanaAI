@@ -320,292 +320,304 @@
     </div>
 
     <script>
-        // DOM Elements
-        const fileInput = document.getElementById('fileInput');
-        const uploadBtn = document.getElementById('uploadBtn');
-        const uploadArea = document.getElementById('uploadArea');
-        const uploadStatus = document.getElementById('uploadStatus');
-        const systemStatus = document.getElementById('systemStatus');
-        const statusMessage = document.getElementById('statusMessage');
-        const datasetInfo = document.getElementById('datasetInfo');
-        const datasetDetails = document.getElementById('datasetDetails');
-        const chatMessages = document.getElementById('chatMessages');
-        const chatInput = document.getElementById('chatInput');
-        const sendBtn = document.getElementById('sendBtn');
+    // DOM Elements
+    const fileInput = document.getElementById('fileInput');
+    const uploadBtn = document.getElementById('uploadBtn');
+    const uploadArea = document.getElementById('uploadArea');
+    const uploadStatus = document.getElementById('uploadStatus');
+    const systemStatus = document.getElementById('systemStatus');
+    const statusMessage = document.getElementById('statusMessage');
+    const datasetInfo = document.getElementById('datasetInfo');
+    const datasetDetails = document.getElementById('datasetDetails');
+    const chatMessages = document.getElementById('chatMessages');
+    const chatInput = document.getElementById('chatInput');
+    const sendBtn = document.getElementById('sendBtn');
 
-        // State
-        let currentDataset = null;
-        let isUploading = false;
+    // State
+    let currentDataset = null;
+    let isUploading = false;
 
-        // Initialize
-        document.addEventListener('DOMContentLoaded', function() {
-            checkHealth();
-            setupEventListeners();
+    // Initialize
+    document.addEventListener('DOMContentLoaded', function() {
+        checkHealth();
+        setupEventListeners();
+    });
+
+    function setupEventListeners() {
+        // File input change
+        fileInput.addEventListener('change', handleFileSelect);
+        
+        // Drag and drop
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('highlight');
         });
 
-        function setupEventListeners() {
-            // File input change
-            fileInput.addEventListener('change', handleFileSelect);
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('highlight');
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('highlight');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                fileInput.files = files;
+                handleFileSelect();
+            }
+        });
+
+        // Click upload area
+        uploadArea.addEventListener('click', () => {
+            fileInput.click();
+        });
+
+        // Chat input
+        chatInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+
+        // Send button
+        sendBtn.addEventListener('click', sendMessage);
+    }
+
+    function handleFileSelect() {
+        const file = fileInput.files[0];
+        if (file) {
+            if (file.type !== 'text/csv' && !file.name.endsWith('.csv')) {
+                showStatus('Please select a CSV file.', 'error');
+                return;
+            }
             
-            // Drag and drop
-            uploadArea.addEventListener('dragover', (e) => {
-                e.preventDefault();
-                uploadArea.classList.add('highlight');
-            });
-
-            uploadArea.addEventListener('dragleave', () => {
-                uploadArea.classList.remove('highlight');
-            });
-
-            uploadArea.addEventListener('drop', (e) => {
-                e.preventDefault();
-                uploadArea.classList.remove('highlight');
-                const files = e.dataTransfer.files;
-                if (files.length > 0) {
-                    fileInput.files = files;
-                    handleFileSelect();
-                }
-            });
-
-            // Click upload area
-            uploadArea.addEventListener('click', () => {
-                fileInput.click();
-            });
-
-            // Chat input
-            chatInput.addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') {
-                    sendMessage();
-                }
-            });
-
-            // Send button
-            sendBtn.addEventListener('click', sendMessage);
+            uploadFile(file);
         }
+    }
 
-        function handleFileSelect() {
-            const file = fileInput.files[0];
-            if (file) {
-                if (file.type !== 'text/csv' && !file.name.endsWith('.csv')) {
-                    showStatus('Please select a CSV file.', 'error');
-                    return;
+    async function uploadFile(file) {
+        if (isUploading) return;
+        
+        isUploading = true;
+        updateUploadButton(true);
+        showStatus('Uploading file...', 'info');
+
+        const formData = new FormData();
+        formData.append('file', file);
+
+        try {
+            const response = await fetch('/upload', {
+                method: 'POST',
+                body: formData
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+                showStatus(result.message, 'success');
+                currentDataset = result.dataset_info || result;
+                updateDatasetInfo(currentDataset);
+                enableChat();
+                await checkHealth(); // Refresh system status
+            } else {
+                showStatus(result.message, 'error');
+            }
+        } catch (error) {
+            console.error('Upload error:', error);
+            showStatus('Upload failed: ' + error.message, 'error');
+        } finally {
+            isUploading = false;
+            updateUploadButton(false);
+        }
+    }
+
+    function updateUploadButton(uploading) {
+        if (uploadBtn) {
+            uploadBtn.disabled = uploading;
+            uploadBtn.textContent = uploading ? 'Uploading...' : 'Choose File';
+        }
+    }
+
+    function showStatus(message, type = 'info') {
+        if (!uploadStatus) return;
+        
+        uploadStatus.innerHTML = `
+            <div class="status-${type}">
+                <strong>${type.toUpperCase()}:</strong> ${message}
+            </div>
+        `;
+    }
+
+    function updateDatasetInfo(result) {
+        if (!datasetInfo || !datasetDetails) return;
+        
+        const datasetInfoData = result.dataset_info || result;
+        
+        datasetInfo.style.display = 'block';
+        datasetDetails.innerHTML = `
+            <p><strong>Table:</strong> ${datasetInfoData.table_name || 'N/A'}</p>
+            <p><strong>Records:</strong> ${datasetInfoData.row_count || 0} rows</p>
+            <p><strong>Columns:</strong> ${datasetInfoData.column_count || 0}</p>
+            <p><strong>Database:</strong> ${datasetInfoData.database || 'PostgreSQL'}</p>
+            ${datasetInfoData.columns ? `<p><strong>Columns:</strong> ${datasetInfoData.columns.join(', ')}</p>` : ''}
+        `;
+    }
+
+    function enableChat() {
+        if (chatInput && sendBtn) {
+            chatInput.disabled = false;
+            sendBtn.disabled = false;
+            chatInput.placeholder = "Ask about your sales data...";
+        }
+    }
+
+    async function sendMessage() {
+        const message = chatInput.value.trim();
+        if (!message || sendBtn.disabled) return;
+
+        // Add user message to chat
+        addMessage(message, 'user');
+        chatInput.value = '';
+        chatInput.disabled = true;
+        sendBtn.disabled = true;
+
+        // Show typing indicator
+        const typingId = showTypingIndicator();
+
+        try {
+            const response = await fetch('/chat', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    message: message,
+                    conversation_id: 'default'
+                })
+            });
+
+            const result = await response.json();
+
+            // Remove typing indicator
+            removeTypingIndicator(typingId);
+
+            // Add assistant response
+            addMessage(result.response, 'assistant', result);
+
+        } catch (error) {
+            console.error('Chat error:', error);
+            removeTypingIndicator(typingId);
+            addMessage('Sorry, I encountered an error. Please try again.', 'assistant');
+        } finally {
+            chatInput.disabled = false;
+            sendBtn.disabled = false;
+            chatInput.focus();
+        }
+    }
+
+    function addMessage(content, sender, metadata = null) {
+        if (!chatMessages) return;
+        
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `message ${sender}-message`;
+        
+        let messageHTML = `<strong>${sender === 'user' ? '👤 You' : '🤖 Assistant'}</strong><br>`;
+        
+        // Format the message content
+        messageHTML += formatMessageContent(content);
+        
+        // Add metadata if available
+        if (metadata && sender === 'assistant') {
+            if (metadata.agents_used && metadata.agents_used.length > 0) {
+                messageHTML += `<br><small>Agents: ${metadata.agents_used.map(agent => `<span class="agent-tag">${agent}</span>`).join('')}</small>`;
+            }
+            if (metadata.has_dataset) {
+                messageHTML += `<br><small>📊 Using uploaded dataset</small>`;
+            }
+        }
+        
+        messageDiv.innerHTML = messageHTML;
+        chatMessages.appendChild(messageDiv);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    function formatMessageContent(content) {
+        // Convert markdown-style formatting to HTML
+        return content
+            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+            .replace(/\*(.*?)\*/g, '<em>$1</em>')
+            .replace(/`(.*?)`/g, '<code>$1</code>')
+            .replace(/\n/g, '<br>');
+    }
+
+    function showTypingIndicator() {
+        if (!chatMessages) return null;
+        
+        const typingDiv = document.createElement('div');
+        typingDiv.className = 'typing-indicator';
+        typingDiv.id = 'typing-indicator';
+        typingDiv.innerHTML = `
+            <strong>🤖 Assistant</strong><br>
+            <div class="typing-dots">
+                <span></span>
+                <span></span>
+                <span></span>
+            </div>
+        `;
+        chatMessages.appendChild(typingDiv);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+        return 'typing-indicator';
+    }
+
+    function removeTypingIndicator(id) {
+        if (!id) return;
+        const element = document.getElementById(id);
+        if (element) {
+            element.remove();
+        }
+    }
+
+    async function checkHealth() {
+        try {
+            const response = await fetch('/health');
+            const result = await response.json();
+            
+            if (statusMessage) {
+                let statusHTML = `<span style="color: #28a745;">✅ ${result.message}</span><br>`;
+                statusHTML += `<small>Database: ${result.database || 'PostgreSQL'}</small><br>`;
+                statusHTML += `<small>Tables: ${result.table_count || 0} active</small>`;
+                
+                // Show table names if available
+                if (result.tables && result.tables.length > 0) {
+                    statusHTML += `<br><small>Latest Table: ${result.tables[0]}</small>`;
                 }
                 
-                uploadFile(file);
+                statusMessage.innerHTML = statusHTML;
             }
-        }
 
-        async function uploadFile(file) {
-            if (isUploading) return;
-            
-            isUploading = true;
-            updateUploadButton(true);
-            showStatus('Uploading file...', 'info');
-
-            const formData = new FormData();
-            formData.append('file', file);
-
-            try {
-                const response = await fetch('/upload', {
-                    method: 'POST',
-                    body: formData
-                });
-
-                const result = await response.json();
-
-                if (result.success) {
-                    showStatus(result.message, 'success');
-                    currentDataset = result.dataset_info;
-                    updateDatasetInfo(result);
-                    enableChat();
-                    await checkHealth(); // Refresh system status
-                } else {
-                    showStatus(result.message, 'error');
-                }
-            } catch (error) {
-                console.error('Upload error:', error);
-                showStatus('Upload failed: ' + error.message, 'error');
-            } finally {
-                isUploading = false;
-                updateUploadButton(false);
-            }
-        }
-
-        function updateUploadButton(uploading) {
-            if (uploadBtn) {
-                uploadBtn.disabled = uploading;
-                uploadBtn.textContent = uploading ? 'Uploading...' : 'Choose File';
-            }
-        }
-
-        function showStatus(message, type = 'info') {
-            if (!uploadStatus) return;
-            
-            uploadStatus.innerHTML = `
-                <div class="status-${type}">
-                    <strong>${type.toUpperCase()}:</strong> ${message}
-                </div>
-            `;
-        }
-
-        function updateDatasetInfo(result) {
-            if (!datasetInfo || !datasetDetails) return;
-            
-            datasetInfo.style.display = 'block';
-            datasetDetails.innerHTML = `
-                <p><strong>Table:</strong> ${result.table_name}</p>
-                <p><strong>Records:</strong> ${result.row_count} rows</p>
-                <p><strong>Columns:</strong> ${result.column_count}</p>
-                <p><strong>Database:</strong> ${result.database}</p>
-            `;
-        }
-
-        function enableChat() {
-            if (chatInput && sendBtn) {
-                chatInput.disabled = false;
-                sendBtn.disabled = false;
-                chatInput.placeholder = "Ask about your sales data...";
-            }
-        }
-
-        async function sendMessage() {
-            const message = chatInput.value.trim();
-            if (!message || sendBtn.disabled) return;
-
-            // Add user message to chat
-            addMessage(message, 'user');
-            chatInput.value = '';
-            chatInput.disabled = true;
-            sendBtn.disabled = true;
-
-            // Show typing indicator
-            const typingId = showTypingIndicator();
-
-            try {
-                const response = await fetch('/chat', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        message: message,
-                        conversation_id: 'default'
-                    })
-                });
-
-                const result = await response.json();
-
-                // Remove typing indicator
-                removeTypingIndicator(typingId);
-
-                // Add assistant response
-                addMessage(result.response, 'assistant', result);
-
-            } catch (error) {
-                console.error('Chat error:', error);
-                removeTypingIndicator(typingId);
-                addMessage('Sorry, I encountered an error. Please try again.', 'assistant');
-            } finally {
-                chatInput.disabled = false;
-                sendBtn.disabled = false;
-                chatInput.focus();
-            }
-        }
-
-        function addMessage(content, sender, metadata = null) {
-            if (!chatMessages) return;
-            
-            const messageDiv = document.createElement('div');
-            messageDiv.className = `message ${sender}-message`;
-            
-            let messageHTML = `<strong>${sender === 'user' ? '👤 You' : '🤖 Assistant'}</strong><br>`;
-            
-            // Format the message content
-            messageHTML += formatMessageContent(content);
-            
-            // Add metadata if available
-            if (metadata && sender === 'assistant') {
-                if (metadata.agents_used && metadata.agents_used.length > 0) {
-                    messageHTML += `<br><small>Agents: ${metadata.agents_used.map(agent => `<span class="agent-tag">${agent}</span>`).join('')}</small>`;
-                }
-                if (metadata.has_dataset) {
-                    messageHTML += `<br><small>📊 Using uploaded dataset</small>`;
-                }
-            }
-            
-            messageDiv.innerHTML = messageHTML;
-            chatMessages.appendChild(messageDiv);
-            chatMessages.scrollTop = chatMessages.scrollHeight;
-        }
-
-        function formatMessageContent(content) {
-            // Convert markdown-style formatting to HTML
-            return content
-                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-                .replace(/\*(.*?)\*/g, '<em>$1</em>')
-                .replace(/`(.*?)`/g, '<code>$1</code>')
-                .replace(/\n/g, '<br>');
-        }
-
-        function showTypingIndicator() {
-            if (!chatMessages) return null;
-            
-            const typingDiv = document.createElement('div');
-            typingDiv.className = 'typing-indicator';
-            typingDiv.id = 'typing-indicator';
-            typingDiv.innerHTML = `
-                <strong>🤖 Assistant</strong><br>
-                <div class="typing-dots">
-                    <span></span>
-                    <span></span>
-                    <span></span>
-                </div>
-            `;
-            chatMessages.appendChild(typingDiv);
-            chatMessages.scrollTop = chatMessages.scrollHeight;
-            return 'typing-indicator';
-        }
-
-        function removeTypingIndicator(id) {
-            if (!id) return;
-            const element = document.getElementById(id);
-            if (element) {
-                element.remove();
-            }
-        }
-
-        async function checkHealth() {
-            try {
-                const response = await fetch('/health');
-                const result = await response.json();
-                
-                if (statusMessage) {
-                    statusMessage.innerHTML = `
-                        <span style="color: #28a745;">✅ ${result.message}</span><br>
-                        <small>Database: ${result.database || 'revana_database.db'}</small><br>
-                        <small>Tables: ${result.database_tables ? result.database_tables.length : 0} active</small>
+            // If we have tables but no current dataset, enable chat
+            if (result.table_count > 0 && !currentDataset) {
+                enableChat();
+                if (datasetInfo) {
+                    datasetInfo.style.display = 'block';
+                    datasetDetails.innerHTML = `
+                        <p>Using existing database tables</p>
+                        <p><strong>Total Tables:</strong> ${result.table_count}</p>
+                        <p><strong>Latest Table:</strong> ${result.tables ? result.tables[0] : 'N/A'}</p>
                     `;
                 }
+            }
 
-                // If we have tables but no current dataset, enable chat
-                if (result.database_tables && result.database_tables.length > 0 && !currentDataset) {
-                    enableChat();
-                    if (datasetInfo) {
-                        datasetInfo.style.display = 'block';
-                        datasetDetails.innerHTML = `<p>Using existing database tables</p>`;
-                    }
-                }
-
-            } catch (error) {
-                console.error('Health check failed:', error);
-                if (statusMessage) {
-                    statusMessage.innerHTML = `<span style="color: #dc3545;">❌ Service unavailable</span>`;
-                }
+        } catch (error) {
+            console.error('Health check failed:', error);
+            if (statusMessage) {
+                statusMessage.innerHTML = `<span style="color: #dc3545;">❌ Service unavailable</span>`;
             }
         }
+    }
 
-        // Periodically check health
-        setInterval(checkHealth, 30000); // Every 30 seconds
-    </script>
+    // Periodically check health
+    setInterval(checkHealth, 30000); // Every 30 seconds
+</script>
 </body>
 </html>
