@@ -4,165 +4,483 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Agentic Sales Assistant</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        body {
-            font-family: Arial, sans-serif;
+        * {
             margin: 0;
-            padding: 20px;
-            background-color: #f5f5f5;
+            padding: 0;
+            box-sizing: border-box;
         }
-        
-        .chat-container {
-            max-width: 800px;
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
             margin: 0 auto;
             background: white;
-            border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            border-radius: 15px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
             overflow: hidden;
         }
-        
-        .chat-header {
-            background: #4f46e5;
+
+        .header {
+            background: linear-gradient(135deg, #2c3e50, #34495e);
             color: white;
-            padding: 20px;
+            padding: 30px;
             text-align: center;
         }
-        
-        .chat-messages {
-            height: 400px;
-            overflow-y: auto;
-            padding: 20px;
-            border-bottom: 1px solid #eee;
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
         }
-        
-        .message {
-            margin-bottom: 15px;
-            padding: 10px 15px;
-            border-radius: 8px;
-            max-width: 70%;
+
+        .header p {
+            opacity: 0.9;
+            font-size: 1.1em;
         }
-        
-        .user-message {
-            background: #e3f2fd;
-            margin-left: auto;
-            text-align: right;
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0;
+            min-height: 600px;
         }
-        
-        .bot-message {
-            background: #f5f5f5;
-            margin-right: auto;
+
+        .upload-section {
+            background: #f8f9fa;
+            padding: 30px;
+            border-right: 1px solid #e9ecef;
         }
-        
-        .chat-input {
+
+        .chat-section {
+            padding: 30px;
             display: flex;
-            padding: 20px;
-            gap: 10px;
+            flex-direction: column;
         }
-        
-        .chat-input input {
-            flex: 1;
-            padding: 10px;
-            border: 1px solid #ddd;
-            border-radius: 5px;
-            font-size: 14px;
+
+        .upload-area {
+            border: 3px dashed #667eea;
+            border-radius: 10px;
+            padding: 40px 20px;
+            text-align: center;
+            background: #f8f9fa;
+            transition: all 0.3s ease;
+            margin-bottom: 20px;
         }
-        
-        .chat-input button {
-            padding: 10px 20px;
-            background: #4f46e5;
+
+        .upload-area:hover {
+            border-color: #764ba2;
+            background: #e9ecef;
+        }
+
+        .upload-area.highlight {
+            border-color: #764ba2;
+            background: #e9ecef;
+        }
+
+        .upload-icon {
+            font-size: 3em;
+            color: #667eea;
+            margin-bottom: 15px;
+        }
+
+        .file-input {
+            display: none;
+        }
+
+        .upload-btn {
+            background: linear-gradient(135deg, #667eea, #764ba2);
             color: white;
             border: none;
-            border-radius: 5px;
+            padding: 12px 30px;
+            border-radius: 25px;
             cursor: pointer;
-        }
-        
-        .chat-input button:hover {
-            background: #4338ca;
-        }
-        
-        .data-table {
-            width: 100%;
-            border-collapse: collapse;
+            font-size: 1em;
+            transition: transform 0.2s ease;
             margin: 10px 0;
-            font-size: 12px;
         }
-        
-        .data-table th, .data-table td {
-            border: 1px solid #ddd;
-            padding: 8px;
-            text-align: left;
+
+        .upload-btn:hover {
+            transform: translateY(-2px);
         }
-        
-        .data-table th {
-            background-color: #f8f9fa;
+
+        .upload-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
         }
-        
-        .loading {
-            text-align: center;
-            color: #666;
-            font-style: italic;
+
+        .status-area {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 8px;
+            background: white;
+            border-left: 4px solid #667eea;
+        }
+
+        .status-success {
+            border-left-color: #28a745;
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status-error {
+            border-left-color: #dc3545;
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .status-info {
+            border-left-color: #17a2b8;
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            max-height: 400px;
+        }
+
+        .message {
+            margin-bottom: 15px;
+            padding: 15px;
+            border-radius: 10px;
+            max-width: 80%;
+        }
+
+        .user-message {
+            background: #667eea;
+            color: white;
+            margin-left: auto;
+        }
+
+        .assistant-message {
+            background: white;
+            border: 1px solid #e9ecef;
+            margin-right: auto;
+        }
+
+        .chat-input-area {
+            display: flex;
+            gap: 10px;
+        }
+
+        .chat-input {
+            flex: 1;
+            padding: 15px;
+            border: 2px solid #e9ecef;
+            border-radius: 25px;
+            font-size: 1em;
+            outline: none;
+            transition: border-color 0.3s ease;
+        }
+
+        .chat-input:focus {
+            border-color: #667eea;
+        }
+
+        .send-btn {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            padding: 15px 25px;
+            border-radius: 25px;
+            cursor: pointer;
+            transition: transform 0.2s ease;
+        }
+
+        .send-btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+        }
+
+        .send-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .agent-tag {
+            display: inline-block;
+            background: #764ba2;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.8em;
+            margin-right: 5px;
+        }
+
+        .dataset-info {
+            background: #e9ecef;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 15px;
+            font-size: 0.9em;
+        }
+
+        .typing-indicator {
+            display: inline-block;
+            padding: 10px 15px;
+            background: white;
+            border: 1px solid #e9ecef;
+            border-radius: 10px;
+            margin-bottom: 15px;
+        }
+
+        .typing-dots {
+            display: inline-block;
+        }
+
+        .typing-dots span {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #667eea;
+            margin: 0 2px;
+            animation: typing 1.4s infinite ease-in-out;
+        }
+
+        .typing-dots span:nth-child(1) { animation-delay: -0.32s; }
+        .typing-dots span:nth-child(2) { animation-delay: -0.16s; }
+
+        @keyframes typing {
+            0%, 80%, 100% { transform: scale(0); }
+            40% { transform: scale(1); }
+        }
+
+        @media (max-width: 768px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+            .upload-section {
+                border-right: none;
+                border-bottom: 1px solid #e9ecef;
+            }
         }
     </style>
 </head>
 <body>
-    <div class="chat-container">
-        <div class="chat-header">
+    <div class="container">
+        <div class="header">
             <h1>🤖 Agentic Sales Assistant</h1>
-            <p>Ask questions about your sales data in plain English</p>
+            <p>Upload CSV files and chat with your data using AI agents</p>
         </div>
-        
-        <div class="chat-messages" id="chatMessages">
-            <div class="message bot-message">
-                Hello! I'm your AI sales assistant. I can help you analyze sales data, 
-                generate forecasts, and detect anomalies. Try asking something like:
-                <ul>
-                    <li>"What were the total sales last month?"</li>
-                    <li>"Show me sales by product category"</li>
-                    <li>"What are the top 5 products by revenue?"</li>
-                </ul>
+
+        <div class="main-content">
+            <!-- Upload Section -->
+            <div class="upload-section">
+                <div class="upload-area" id="uploadArea">
+                    <div class="upload-icon">📁</div>
+                    <h3>Upload Your CSV File</h3>
+                    <p>Drag & drop your CSV file here or click to browse</p>
+                    <input type="file" id="fileInput" class="file-input" accept=".csv">
+                    <button class="upload-btn" id="uploadBtn" onclick="document.getElementById('fileInput').click()">
+                        Choose File
+                    </button>
+                </div>
+
+                <div id="uploadStatus"></div>
+
+                <div class="dataset-info" id="datasetInfo" style="display: none;">
+                    <h4>📊 Active Dataset</h4>
+                    <div id="datasetDetails"></div>
+                </div>
+
+                <div class="status-area" id="systemStatus">
+                    <h4>System Status</h4>
+                    <div id="statusMessage">Checking system status...</div>
+                </div>
             </div>
-        </div>
-        
-        <div class="chat-input">
-            <input type="text" id="messageInput" placeholder="Ask about your sales data..." onkeypress="handleKeyPress(event)">
-            <button onclick="sendMessage()">Send</button>
+
+            <!-- Chat Section -->
+            <div class="chat-section">
+                <div class="chat-messages" id="chatMessages">
+                    <div class="message assistant-message">
+                        <strong>🤖 Assistant</strong><br>
+                        Welcome! Upload a CSV file to start analyzing your data, or ask me anything about sales analytics.
+                    </div>
+                </div>
+
+                <div class="chat-input-area">
+                    <input type="text" class="chat-input" id="chatInput" placeholder="Ask about your data..." disabled>
+                    <button class="send-btn" id="sendBtn" disabled>Send</button>
+                </div>
+            </div>
         </div>
     </div>
 
     <script>
-        let conversationId = 'default';
-        
-        function addMessage(text, isUser = false) {
-            const messagesDiv = document.getElementById('chatMessages');
-            const messageDiv = document.createElement('div');
-            messageDiv.className = `message ${isUser ? 'user-message' : 'bot-message'}`;
-            messageDiv.innerHTML = text;
-            messagesDiv.appendChild(messageDiv);
-            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        // DOM Elements
+        const fileInput = document.getElementById('fileInput');
+        const uploadBtn = document.getElementById('uploadBtn');
+        const uploadArea = document.getElementById('uploadArea');
+        const uploadStatus = document.getElementById('uploadStatus');
+        const systemStatus = document.getElementById('systemStatus');
+        const statusMessage = document.getElementById('statusMessage');
+        const datasetInfo = document.getElementById('datasetInfo');
+        const datasetDetails = document.getElementById('datasetDetails');
+        const chatMessages = document.getElementById('chatMessages');
+        const chatInput = document.getElementById('chatInput');
+        const sendBtn = document.getElementById('sendBtn');
+
+        // State
+        let currentDataset = null;
+        let isUploading = false;
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            checkHealth();
+            setupEventListeners();
+        });
+
+        function setupEventListeners() {
+            // File input change
+            fileInput.addEventListener('change', handleFileSelect);
+            
+            // Drag and drop
+            uploadArea.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                uploadArea.classList.add('highlight');
+            });
+
+            uploadArea.addEventListener('dragleave', () => {
+                uploadArea.classList.remove('highlight');
+            });
+
+            uploadArea.addEventListener('drop', (e) => {
+                e.preventDefault();
+                uploadArea.classList.remove('highlight');
+                const files = e.dataTransfer.files;
+                if (files.length > 0) {
+                    fileInput.files = files;
+                    handleFileSelect();
+                }
+            });
+
+            // Click upload area
+            uploadArea.addEventListener('click', () => {
+                fileInput.click();
+            });
+
+            // Chat input
+            chatInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    sendMessage();
+                }
+            });
+
+            // Send button
+            sendBtn.addEventListener('click', sendMessage);
         }
-        
-        function handleKeyPress(event) {
-            if (event.key === 'Enter') {
-                sendMessage();
+
+        function handleFileSelect() {
+            const file = fileInput.files[0];
+            if (file) {
+                if (file.type !== 'text/csv' && !file.name.endsWith('.csv')) {
+                    showStatus('Please select a CSV file.', 'error');
+                    return;
+                }
+                
+                uploadFile(file);
             }
         }
-        
+
+        async function uploadFile(file) {
+            if (isUploading) return;
+            
+            isUploading = true;
+            updateUploadButton(true);
+            showStatus('Uploading file...', 'info');
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const response = await fetch('/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    showStatus(result.message, 'success');
+                    currentDataset = result.dataset_info;
+                    updateDatasetInfo(result);
+                    enableChat();
+                    await checkHealth(); // Refresh system status
+                } else {
+                    showStatus(result.message, 'error');
+                }
+            } catch (error) {
+                console.error('Upload error:', error);
+                showStatus('Upload failed: ' + error.message, 'error');
+            } finally {
+                isUploading = false;
+                updateUploadButton(false);
+            }
+        }
+
+        function updateUploadButton(uploading) {
+            if (uploadBtn) {
+                uploadBtn.disabled = uploading;
+                uploadBtn.textContent = uploading ? 'Uploading...' : 'Choose File';
+            }
+        }
+
+        function showStatus(message, type = 'info') {
+            if (!uploadStatus) return;
+            
+            uploadStatus.innerHTML = `
+                <div class="status-${type}">
+                    <strong>${type.toUpperCase()}:</strong> ${message}
+                </div>
+            `;
+        }
+
+        function updateDatasetInfo(result) {
+            if (!datasetInfo || !datasetDetails) return;
+            
+            datasetInfo.style.display = 'block';
+            datasetDetails.innerHTML = `
+                <p><strong>Table:</strong> ${result.table_name}</p>
+                <p><strong>Records:</strong> ${result.row_count} rows</p>
+                <p><strong>Columns:</strong> ${result.column_count}</p>
+                <p><strong>Database:</strong> ${result.database}</p>
+            `;
+        }
+
+        function enableChat() {
+            if (chatInput && sendBtn) {
+                chatInput.disabled = false;
+                sendBtn.disabled = false;
+                chatInput.placeholder = "Ask about your sales data...";
+            }
+        }
+
         async function sendMessage() {
-            const input = document.getElementById('messageInput');
-            const message = input.value.trim();
-            
-            if (!message) return;
-            
+            const message = chatInput.value.trim();
+            if (!message || sendBtn.disabled) return;
+
             // Add user message to chat
-            addMessage(message, true);
-            input.value = '';
-            
-            // Show loading
-            const loadingDiv = document.createElement('div');
-            loadingDiv.className = 'message bot-message loading';
-            loadingDiv.textContent = 'Thinking...';
-            document.getElementById('chatMessages').appendChild(loadingDiv);
-            
+            addMessage(message, 'user');
+            chatInput.value = '';
+            chatInput.disabled = true;
+            sendBtn.disabled = true;
+
+            // Show typing indicator
+            const typingId = showTypingIndicator();
+
             try {
                 const response = await fetch('/chat', {
                     method: 'POST',
@@ -171,63 +489,123 @@
                     },
                     body: JSON.stringify({
                         message: message,
-                        conversation_id: conversationId
+                        conversation_id: 'default'
                     })
                 });
-                
-                const data = await response.json();
-                
-                // Remove loading message
-                loadingDiv.remove();
-                
-                // Add bot response
-                let responseHtml = data.response;
-                
-                if (data.data && data.data.data && data.data.data.length > 0) {
-                    responseHtml += '<br><br><strong>Data Results:</strong>';
-                    responseHtml += renderDataTable(data.data.data);
-                }
-                
-                if (data.actions && data.actions.length > 0) {
-                    responseHtml += `<br><small>Actions taken: ${data.actions.join(', ')}</small>`;
-                }
-                
-                addMessage(responseHtml, false);
-                
+
+                const result = await response.json();
+
+                // Remove typing indicator
+                removeTypingIndicator(typingId);
+
+                // Add assistant response
+                addMessage(result.response, 'assistant', result);
+
             } catch (error) {
-                console.error('Error:', error);
-                loadingDiv.remove();
-                addMessage('Sorry, there was an error processing your request. Please try again.', false);
+                console.error('Chat error:', error);
+                removeTypingIndicator(typingId);
+                addMessage('Sorry, I encountered an error. Please try again.', 'assistant');
+            } finally {
+                chatInput.disabled = false;
+                sendBtn.disabled = false;
+                chatInput.focus();
             }
         }
-        
-        function renderDataTable(data) {
-            if (!data || data.length === 0) return '';
+
+        function addMessage(content, sender, metadata = null) {
+            if (!chatMessages) return;
             
-            const headers = Object.keys(data[0]);
-            let html = '<table class="data-table"><thead><tr>';
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${sender}-message`;
             
-            // Add headers
-            headers.forEach(header => {
-                html += `<th>${header}</th>`;
-            });
-            html += '</tr></thead><tbody>';
+            let messageHTML = `<strong>${sender === 'user' ? '👤 You' : '🤖 Assistant'}</strong><br>`;
             
-            // Add rows
-            data.forEach(row => {
-                html += '<tr>';
-                headers.forEach(header => {
-                    html += `<td>${row[header]}</td>`;
-                });
-                html += '</tr>';
-            });
+            // Format the message content
+            messageHTML += formatMessageContent(content);
             
-            html += '</tbody></table>';
-            return html;
+            // Add metadata if available
+            if (metadata && sender === 'assistant') {
+                if (metadata.agents_used && metadata.agents_used.length > 0) {
+                    messageHTML += `<br><small>Agents: ${metadata.agents_used.map(agent => `<span class="agent-tag">${agent}</span>`).join('')}</small>`;
+                }
+                if (metadata.has_dataset) {
+                    messageHTML += `<br><small>📊 Using uploaded dataset</small>`;
+                }
+            }
+            
+            messageDiv.innerHTML = messageHTML;
+            chatMessages.appendChild(messageDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
         }
-        
-        // Focus input on load
-        document.getElementById('messageInput').focus();
+
+        function formatMessageContent(content) {
+            // Convert markdown-style formatting to HTML
+            return content
+                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                .replace(/\*(.*?)\*/g, '<em>$1</em>')
+                .replace(/`(.*?)`/g, '<code>$1</code>')
+                .replace(/\n/g, '<br>');
+        }
+
+        function showTypingIndicator() {
+            if (!chatMessages) return null;
+            
+            const typingDiv = document.createElement('div');
+            typingDiv.className = 'typing-indicator';
+            typingDiv.id = 'typing-indicator';
+            typingDiv.innerHTML = `
+                <strong>🤖 Assistant</strong><br>
+                <div class="typing-dots">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </div>
+            `;
+            chatMessages.appendChild(typingDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+            return 'typing-indicator';
+        }
+
+        function removeTypingIndicator(id) {
+            if (!id) return;
+            const element = document.getElementById(id);
+            if (element) {
+                element.remove();
+            }
+        }
+
+        async function checkHealth() {
+            try {
+                const response = await fetch('/health');
+                const result = await response.json();
+                
+                if (statusMessage) {
+                    statusMessage.innerHTML = `
+                        <span style="color: #28a745;">✅ ${result.message}</span><br>
+                        <small>Database: ${result.database || 'revana_database.db'}</small><br>
+                        <small>Tables: ${result.database_tables ? result.database_tables.length : 0} active</small>
+                    `;
+                }
+
+                // If we have tables but no current dataset, enable chat
+                if (result.database_tables && result.database_tables.length > 0 && !currentDataset) {
+                    enableChat();
+                    if (datasetInfo) {
+                        datasetInfo.style.display = 'block';
+                        datasetDetails.innerHTML = `<p>Using existing database tables</p>`;
+                    }
+                }
+
+            } catch (error) {
+                console.error('Health check failed:', error);
+                if (statusMessage) {
+                    statusMessage.innerHTML = `<span style="color: #dc3545;">❌ Service unavailable</span>`;
+                }
+            }
+        }
+
+        // Periodically check health
+        setInterval(checkHealth, 30000); // Every 30 seconds
     </script>
 </body>
 </html>

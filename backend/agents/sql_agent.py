@@ -1,7 +1,7 @@
 from langchain_community.chat_models import ChatOpenAI
 from langchain.schema import HumanMessage, SystemMessage
-from backend.utils.vector_db import vector_db
 from backend.utils.database import db_manager
+from backend.utils.vector_db import vector_db
 from backend.config import Config
 import re
 
@@ -12,40 +12,35 @@ class SQLAgent:
             temperature=0,
             openai_api_key=Config.OPENAI_API_KEY
         )
-        self.schema_info = self._get_schema_info()
     
-    def _get_schema_info(self):
-        """Get database schema information"""
-        schema_df = db_manager.get_table_schema()
-        schema_info = "Database Schema:\n"
-        for _, row in schema_df.iterrows():
-            schema_info += f"{row['column_name']} ({row['data_type']}) - {'NULL' if row['is_nullable'] == 'YES' else 'NOT NULL'}\n"
-        return schema_info
-    
-    def generate_sql(self, user_query, context=""):
+    def generate_sql(self, user_query):
         """Generate SQL query from natural language"""
+        print(f"🤖 SQL_AGENT: Generating SQL for: {user_query}")
         
-        # Get similar examples from vector DB
-        similar_examples = vector_db.search_similar(user_query)
-        examples_text = "\n".join([f"Example: {ex}" for ex in similar_examples])
+        # Get schema context from vector DB
+        schema_context = vector_db.get_schema_context(user_query)
+        active_dataset = vector_db.get_active_dataset()
+        
+        if not active_dataset:
+            return None, "No active dataset. Please upload a CSV file first."
         
         system_prompt = f"""
         You are an expert SQL query generator. Convert natural language questions to PostgreSQL queries.
         
-        {self.schema_info}
+        Current Active Table: {active_dataset}
+        
+        Schema Information:
+        {schema_context}
         
         Important rules:
         - Only generate SELECT queries (read-only)
+        - Use the actual table name: {active_dataset}
         - Use proper aggregation (SUM, COUNT, AVG) when needed
         - Include appropriate GROUP BY clauses for breakdowns
         - Use WHERE clauses for filtering
-        - Always use the actual column names from the schema
         - Return only the SQL query, no explanations
         
-        Examples:
-        {examples_text}
-        
-        Context: {context}
+        If the query asks for columns that don't exist in the schema, return an error message explaining what columns are available.
         """
         
         try:
@@ -57,20 +52,27 @@ class SQLAgent:
             response = self.llm(message)
             sql_query = self._extract_sql_query(response.content)
             
-            return self._validate_sql(sql_query)
+            # Validate SQL
+            validated_sql = self._validate_sql(sql_query)
+            if validated_sql:
+                return validated_sql, None
+            else:
+                return None, "Generated SQL query is invalid."
             
         except Exception as e:
-            print(f"Error generating SQL: {e}")
-            return None
+            print(f"❌ SQL_AGENT Error: {e}")
+            return None, f"Error generating SQL: {str(e)}"
     
     def _extract_sql_query(self, text):
         """Extract SQL query from LLM response"""
-        # Look for SQL between ```sql ... ``` or just the query
+        # Check if it's an error message about missing columns
+        if "does not contain" in text or "available columns" in text.lower():
+            return None
+        
         sql_match = re.search(r'```sql\n(.*?)\n```', text, re.DOTALL)
         if sql_match:
             return sql_match.group(1).strip()
         
-        # If no code blocks, try to find SELECT statement
         select_match = re.search(r'(SELECT.*?)(?=;|$)', text, re.DOTALL | re.IGNORECASE)
         if select_match:
             return select_match.group(1).strip() + ';'
@@ -82,15 +84,13 @@ class SQLAgent:
         if not sql_query:
             return None
         
-        # Check if it's a SELECT query
         if not sql_query.strip().upper().startswith('SELECT'):
-            print("Error: Only SELECT queries are allowed")
+            print("❌ SQL_AGENT: Only SELECT queries allowed")
             return None
         
-        # Check for dangerous keywords
         dangerous_keywords = ['DROP', 'DELETE', 'UPDATE', 'INSERT', 'ALTER', 'CREATE']
         if any(keyword in sql_query.upper() for keyword in dangerous_keywords):
-            print("Error: Query contains dangerous operations")
+            print("❌ SQL_AGENT: Query contains dangerous operations")
             return None
         
         return sql_query
@@ -101,8 +101,10 @@ class SQLAgent:
             return None
         
         try:
+            print(f"🤖 SQL_AGENT: Executing query: {sql_query}")
             results = db_manager.execute_query(sql_query)
+            print(f"✅ SQL_AGENT: Retrieved {len(results) if results is not None else 0} rows")
             return results
         except Exception as e:
-            print(f"Error executing query: {e}")
+            print(f"❌ SQL_AGENT: Query execution failed: {e}")
             return None
