@@ -6,6 +6,7 @@ from fastapi import UploadFile
 import tempfile
 import psycopg2
 from psycopg2.extras import execute_values
+from backend.utils.vector_data_processor import VectorDataProcessor
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +19,7 @@ class FileProcessor:
             'host': 'localhost',
             'port': '5432'
         }
+        self.vector_processor = VectorDataProcessor()
         self.ensure_database()
     
     def get_db_connection(self):
@@ -55,11 +57,7 @@ class FileProcessor:
             logger.error(f"❌ Database initialization failed: {e}")
     
     async def process_uploaded_file(self, file: UploadFile, filename: str):
-        """
-        Process uploaded CSV file and automatically create table in PostgreSQL database
-        """
         temp_file_path = None
-        conn = None
         try:
             logger.info(f"📥 Processing uploaded file: {filename}")
             
@@ -76,15 +74,25 @@ class FileProcessor:
             # Generate table name
             table_name = self.generate_table_name(filename)
             
-            # Create table in PostgreSQL database
+            # Create table in database
             result = self.create_table_from_dataframe(df, table_name, filename)
+            
+            # DEBUG: Show what we're processing
+            print(f"🔍 FILE PROCESSOR - Starting vector processing")
+            print(f"   Rows: {len(df)}, Columns: {list(df.columns)}")
+            
+            # Process data for vector embeddings
+            print("🔄 Starting vector processing...")
+            self.vector_processor.process_uploaded_data(df, table_name)
+            print("✅ Vector processing completed")
             
             # Clean up temp file
             if os.path.exists(temp_file_path):
                 os.remove(temp_file_path)
             
-            logger.info(f"✅ Successfully created PostgreSQL table '{table_name}' with {len(df)} records")
+            logger.info(f"✅ Successfully created table '{table_name}' with {len(df)} records")
             
+            # FIX: Return proper success response
             return {
                 "success": True,
                 "table_name": table_name,
@@ -98,8 +106,6 @@ class FileProcessor:
             # Clean up temp file on error
             if temp_file_path and os.path.exists(temp_file_path):
                 os.remove(temp_file_path)
-            if conn:
-                conn.close()
             logger.error(f"❌ File processing error: {e}")
             return {
                 "success": False,
@@ -231,32 +237,30 @@ class FileProcessor:
     
     def get_table_info(self, table_name):
         """Get information about a specific table"""
-        conn = self.get_db_connection()
-        cursor = conn.cursor()
-        
         try:
-            # Get column info
-            cursor.execute("""
-                SELECT column_name, data_type, is_nullable
-                FROM information_schema.columns
-                WHERE table_schema = 'public' AND table_name = %s
-                ORDER BY ordinal_position
-            """, (table_name,))
-            columns = cursor.fetchall()
+            from backend.utils.database import db_manager
             
             # Get row count
-            cursor.execute(f'SELECT COUNT(*) FROM "{table_name}"')
-            row_count = cursor.fetchone()[0]
+            row_count_query = f"SELECT COUNT(*) as count FROM {table_name}"
+            row_result = db_manager.execute_query(row_count_query)
+            row_count = row_result.iloc[0]['count'] if not row_result.empty else 0
+            
+            # Get column count and names
+            column_query = """
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = %s AND table_schema = 'public'
+            """
+            column_result = db_manager.execute_query(column_query, (table_name,))
+            column_count = len(column_result) if not column_result.empty else 0
+            columns = column_result['column_name'].tolist() if not column_result.empty else []
             
             return {
-                "table_name": table_name,
-                "columns": [col[0] for col in columns],
-                "row_count": row_count,
-                "column_details": columns
+                'table_name': table_name,
+                'row_count': row_count,
+                'column_count': column_count,
+                'columns': columns
             }
         except Exception as e:
-            logger.error(f"Error getting table info: {e}")
-            raise e
-        finally:
-            cursor.close()
-            conn.close()
+            logger.error(f"Error getting table info for {table_name}: {e}")
+            return None

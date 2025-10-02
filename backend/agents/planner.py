@@ -47,6 +47,9 @@ class PlannerAgent:
         """Generate execution steps for data queries"""
         execution_steps = []
         agents = intent_result["required_agents"]
+
+        if "FORECAST_AGENT" in agents and "SQL_AGENT" not in agents:
+            agents = ["SQL_AGENT"] + agents
         
         # Always start with SQL agent for data queries
         if "SQL_AGENT" in agents:

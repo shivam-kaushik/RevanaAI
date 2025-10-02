@@ -13,6 +13,7 @@ class SQLAgent:
             openai_api_key=Config.OPENAI_API_KEY
         )
     
+
     def generate_sql(self, user_query):
         """Generate SQL query from natural language"""
         print(f"🤖 SQL_AGENT: Generating SQL for: {user_query}")
@@ -38,6 +39,9 @@ class SQLAgent:
         - Use proper aggregation (SUM, COUNT, AVG) when needed
         - Include appropriate GROUP BY clauses for breakdowns
         - Use WHERE clauses for filtering
+        - For string comparisons, use LOWER(column) = 'value' for case-insensitivity.
+        - For date comparisons, cast text columns to date using date::DATE.
+        - For aggregates like SUM, use COALESCE(SUM(...), 0) to avoid NULL results.
         - Return only the SQL query, no explanations
         
         If the query asks for columns that don't exist in the schema, return an error message explaining what columns are available.
@@ -52,6 +56,30 @@ class SQLAgent:
             response = self.llm(message)
             sql_query = self._extract_sql_query(response.content)
             
+            # Patch SQL for robustness
+            if sql_query:
+                # Patch common column name mistakes
+                sql_query = re.sub(r'\bcategory\b', 'product_category', sql_query)
+
+                # Case-insensitive product_category
+                sql_query = re.sub(
+                    r"WHERE\s+product_category\s*=\s*'([^']+)'",
+                    lambda m: f"WHERE LOWER(product_category) = '{m.group(1).lower()}'",
+                    sql_query,
+                    flags=re.IGNORECASE
+                )
+                # Case-insensitive gender
+                sql_query = re.sub(
+                    r"WHERE\s+gender\s*=\s*'([^']+)'",
+                    lambda m: f"WHERE LOWER(gender) = '{m.group(1).lower()}'",
+                    sql_query,
+                    flags=re.IGNORECASE
+                )
+                # Date casting for comparisons
+                sql_query = re.sub(r"(\s+date\s*)([<>=]+)", r" date::DATE \2", sql_query, flags=re.IGNORECASE)
+                # COALESCE for SUM
+                sql_query = re.sub(r"SUM\(([^)]+)\)", r"COALESCE(SUM(\1), 0)", sql_query)
+            
             # Validate SQL
             validated_sql = self._validate_sql(sql_query)
             if validated_sql:
@@ -62,6 +90,8 @@ class SQLAgent:
         except Exception as e:
             print(f"❌ SQL_AGENT Error: {e}")
             return None, f"Error generating SQL: {str(e)}"
+
+
     
     def _extract_sql_query(self, text):
         """Extract SQL query from LLM response"""
