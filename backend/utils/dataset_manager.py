@@ -112,7 +112,17 @@ class DatasetManager:
                 ORDER BY created_at DESC
             """
             result = db_manager.execute_query(query)
-            return result.to_dict('records') if not result.empty else []
+            if result.empty:
+                return []
+
+            # Filter out entries whose underlying table no longer exists
+            try:
+                existing_tables = set(db_manager.get_active_tables())
+                filtered = result[result['table_name'].isin(existing_tables)]
+                return filtered.to_dict('records') if not filtered.empty else []
+            except Exception:
+                # Fallback to original list if table existence check fails
+                return result.to_dict('records')
         except Exception as e:
             logger.error(f"Failed to get datasets: {e}")
             return []
@@ -143,6 +153,7 @@ class DatasetManager:
             if not dataset_info.empty:
                 self.active_dataset = self._map_dataset_fields(dataset_info.iloc[0].to_dict())
                 logger.info(f"✅ Active dataset set to: {table_name}")
+                # Immediately sync vector_db active dataset and schema
                 vector_db.set_active_dataset(table_name)
                 return True
             else:

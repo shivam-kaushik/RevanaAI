@@ -2,6 +2,7 @@ from langchain_community.chat_models import ChatOpenAI
 from langchain.schema import HumanMessage, SystemMessage
 from backend.utils.database import db_manager
 from backend.utils.vector_db import vector_db
+from backend.utils.dataset_manager import DatasetManager
 from backend.config import Config
 import re
 
@@ -12,15 +13,21 @@ class SQLAgent:
             temperature=0,
             openai_api_key=Config.OPENAI_API_KEY
         )
+        # Independent dataset manager to read active dataset from DB each time
+        self.dataset_manager = DatasetManager()
     
 
     def generate_sql(self, user_query):
         """Generate SQL query from natural language"""
         print(f"🤖 SQL_AGENT: Generating SQL for: {user_query}")
         
-        # Get schema context from vector DB
+        # Read active dataset directly from the database-backed manager
+        active_info = self.dataset_manager.get_active_dataset()
+        active_dataset = active_info['table_name'] if isinstance(active_info, dict) and active_info.get('table_name') else None
+        
+        # Get schema context (may be missing if not cached yet; that's fine)
+        # We keep using vector_db for schema context, but the table name comes from DB
         schema_context = vector_db.get_schema_context(user_query)
-        active_dataset = vector_db.get_active_dataset()
         
         if not active_dataset:
             return None, "No active dataset. Please upload a CSV file first."
