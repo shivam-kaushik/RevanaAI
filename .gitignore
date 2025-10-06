@@ -1,45 +1,22 @@
-# Python
-__pycache__/
-*.py[cod]
-*.so
-*.egg
-*.egg-info/
-dist/
-build/
-
-
-# Virtual environments and environment files
+# virtual envs
+.venv/
 venv/
-.env
 
-# Jupyter Notebooks
-.ipynb_checkpoints
+# python junk
+__pycache__/
+*.pyc
 
-# Data files
-*.csv
-*.xlsx
-*.tsv
-*.db
-*.sqlite
-
-# OS files
+# editor/OS stuff
 .DS_Store
-Thumbs.db
-
-# Logs
-*.log
-
-# VS Code
 .vscode/
+.idea/
 
-# Ignore model weights and binaries
-*.pth
+# model and data files
+*.gguf
 *.pt
-*.h5
+*.bin
 *.ckpt
-*.dll
-*.lib
-*.pyd
-
-# Ignore large files
-/data/
+*.sqlite
+*.db
+data/
+cache/
