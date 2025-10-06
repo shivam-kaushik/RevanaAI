@@ -18,9 +18,8 @@ from pydantic import BaseModel
 
 # Import our agents and utilities
 from backend.agents.planner import PlannerAgent
-from backend.agents.sql_generation_agent import SQLGenerationAgent
-from backend.agents.insight_agent import InsightAgent
-from backend.agents.visualization_agent import VisualizationAgent
+from backend.agents.sql_generation_agent import SQLAgent
+from backend.agents.analysis_agent import AnalysisAgent
 from backend.agents.forecast_agent import ForecastAgent
 from backend.agents.anomaly_agent import AnomalyAgent
 from backend.utils.file_processor import FileProcessor
@@ -46,9 +45,8 @@ app.add_middleware(
 
 # Initialize components
 planner = PlannerAgent()
-sql_agent = SQLGenerationAgent()
-insight_agent = InsightAgent()
-visualization_agent = VisualizationAgent()
+sql_agent = SQLAgent()
+analysis_agent = AnalysisAgent()
 forecast_agent = ForecastAgent()
 anomaly_agent = AnomalyAgent()
 file_processor = FileProcessor()
@@ -371,7 +369,7 @@ async def analyze_data(request: ChatRequest):
             }
         
         # Step 3: Generate insights
-        insights = insight_agent.generate_insights(request.message, data_rows)
+        insights = analysis_agent.generate_insights(request.message, data_rows)
         
         # Step 4: Check if visualization is requested
         charts = {}
@@ -379,7 +377,7 @@ async def analyze_data(request: ChatRequest):
         visualization_keywords = ['chart', 'graph', 'plot', 'visualize', 'show me', 'display', 'bar', 'pie', 'line', 'histogram']
         
         if any(keyword in user_query_lower for keyword in visualization_keywords):
-            chart_image, chart_error = visualization_agent.create_visualization(request.message, data_rows)
+            chart_image, chart_error = analysis_agent.create_visualization(request.message, data_rows)
             if chart_image:
                 charts['main'] = chart_image
             elif chart_error:
