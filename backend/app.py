@@ -18,7 +18,7 @@ from pydantic import BaseModel
 
 # Import our agents and utilities
 from backend.agents.planner import PlannerAgent
-from backend.agents.sql_generation_agent import SQLAgent
+from backend.agents.sql_agent import SQLAgent
 from backend.agents.analysis_agent import AnalysisAgent
 from backend.agents.forecast_agent import ForecastAgent
 from backend.agents.anomaly_agent import AnomalyAgent
