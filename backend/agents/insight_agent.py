@@ -1,6 +1,7 @@
-from langchain_community.chat_models import ChatOpenAI
+from langchain_openai import ChatOpenAI
 from langchain.schema import HumanMessage, SystemMessage
 from backend.config import Config
+
 
 class InsightAgent:
     def __init__(self):
@@ -9,11 +10,11 @@ class InsightAgent:
             temperature=0.7,
             openai_api_key=Config.OPENAI_API_KEY
         )
-    
+
     def generate_insights(self, user_query, data_results, context=""):
         """Generate insights and narratives from data"""
         print(f"🤖 INSIGHT_AGENT: Generating insights for query: {user_query}")
-        
+
         # Prepare data context
         data_context = ""
         if data_results and not data_results.empty:
@@ -25,7 +26,7 @@ class InsightAgent:
             First few rows:
             {data_results.head().to_string()}
             """
-        
+
         system_prompt = """
         You are a data analyst providing insights about retail sales data.
         Create clear, concise, and actionable insights based on the data provided.
@@ -38,7 +39,7 @@ class InsightAgent:
         - Highlight important findings
         - Suggest potential actions when relevant
         """
-        
+
         try:
             message = [
                 SystemMessage(content=system_prompt),
@@ -52,13 +53,13 @@ class InsightAgent:
                 Please provide insightful analysis:
                 """)
             ]
-            
+
             response = self.llm(message)
             insights = response.content.strip()
-            
+
             print(f"✅ INSIGHT_AGENT: Insights generated successfully")
             return insights
-            
+
         except Exception as e:
             print(f"❌ INSIGHT_AGENT Error: {e}")
             return "I analyzed the data but couldn't generate specific insights at this time."

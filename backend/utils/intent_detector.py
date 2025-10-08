@@ -1,8 +1,9 @@
-from langchain_community.chat_models import ChatOpenAI
+from langchain_openai import ChatOpenAI
 from langchain.schema import HumanMessage, SystemMessage
 from backend.config import Config
 import json
 import re
+
 
 class IntentDetector:
     def __init__(self):
@@ -11,7 +12,7 @@ class IntentDetector:
             temperature=0,
             openai_api_key=Config.OPENAI_API_KEY
         )
-        
+
         self.system_prompt = """
         You are an intent detection system for a data analysis assistant.
         Analyze the user's query and determine if it requires data analysis or is just conversational.
@@ -42,19 +43,20 @@ class IntentDetector:
         
         Available agents: SQL_AGENT, INSIGHT_AGENT, FORECAST_AGENT, ANOMALY_AGENT, VISUALIZATION_AGENT
         """
-    
+
     def detect_intent(self, user_query, has_active_dataset=True):
         """Detect intent and required agents"""
         try:
             context = "Active dataset is available." if has_active_dataset else "No dataset uploaded yet."
-            
+
             message = [
                 SystemMessage(content=self.system_prompt),
-                HumanMessage(content=f"Context: {context}\n\nUser Query: {user_query}")
+                HumanMessage(
+                    content=f"Context: {context}\n\nUser Query: {user_query}")
             ]
-            
+
             response = self.llm(message)
-            
+
             # Extract JSON from response
             json_match = re.search(r'\{.*\}', response.content, re.DOTALL)
             if json_match:
@@ -62,17 +64,18 @@ class IntentDetector:
                 return result
             else:
                 return self._fallback_intent_detection(user_query, has_active_dataset)
-                
+
         except Exception as e:
             print(f"Error in intent detection: {e}")
             return self._fallback_intent_detection(user_query, has_active_dataset)
-    
+
     def _fallback_intent_detection(self, user_query, has_active_dataset):
         """Fallback intent detection using keyword matching"""
         query_lower = user_query.lower()
-        
+
         # Check if it's conversational
-        conversational_keywords = ['hello', 'hi', 'hey', 'how are you', 'what can you do', 'help', 'thank you']
+        conversational_keywords = [
+            'hello', 'hi', 'hey', 'how are you', 'what can you do', 'help', 'thank you']
         if any(keyword in query_lower for keyword in conversational_keywords) or len(query_lower.split()) < 3:
             return {
                 "is_data_query": False,
@@ -82,7 +85,7 @@ class IntentDetector:
                 "needs_clarification": False,
                 "clarification_question": ""
             }
-        
+
         # If no active dataset, treat as conversational
         if not has_active_dataset:
             return {
@@ -93,26 +96,29 @@ class IntentDetector:
                 "needs_clarification": False,
                 "clarification_question": ""
             }
-        
+
         # Data analysis queries
         agents = ["SQL_AGENT"]  # Most data queries need SQL
-        
+
         # Check for specific intents
-        forecast_keywords = ['forecast', 'predict', 'next', 'future', 'will', 'going to']
+        forecast_keywords = ['forecast', 'predict',
+                             'next', 'future', 'will', 'going to']
         if any(keyword in query_lower for keyword in forecast_keywords):
             agents.append("FORECAST_AGENT")
-        
-        anomaly_keywords = ['anomaly', 'outlier', 'unusual', 'strange', 'spike', 'drop', 'unexpected']
+
+        anomaly_keywords = ['anomaly', 'outlier', 'unusual',
+                            'strange', 'spike', 'drop', 'unexpected']
         if any(keyword in query_lower for keyword in anomaly_keywords):
             agents.append("ANOMALY_AGENT")
-        
-        viz_keywords = ['chart', 'graph', 'plot', 'visualize', 'show me', 'display']
+
+        viz_keywords = ['chart', 'graph', 'plot',
+                        'visualize', 'show me', 'display']
         if any(keyword in query_lower for keyword in viz_keywords):
             agents.append("VISUALIZATION_AGENT")
-        
+
         # Always include insight agent for data analysis
         agents.append("INSIGHT_AGENT")
-        
+
         return {
             "is_data_query": True,
             "primary_intent": "data_analysis",
