@@ -981,7 +981,6 @@
                 if (statusMessage) {
                     let statusHTML = `<span style="color: #28a745;">✅ ${result.message}</span><br>`;
                     statusHTML += `<small>Database: ${result.database || 'PostgreSQL'}</small><br>`;
-                    statusHTML += `<small>Tables: ${result.table_count || 0} active</small>`;
                     
                     // Show table names if available
                     if (result.tables && result.tables.length > 0) {
