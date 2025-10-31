@@ -23,6 +23,12 @@ class IntentDetector:
         - Requests for predictions, forecasts
         - Looking for anomalies or unusual patterns
         - Asking for charts, graphs, visualizations
+        - Searching for products, items, or best products
+        - Looking for customers, users, or similar customers
+        - Questions about specific products or product categories
+        - Questions about specific customers or customer segments
+        - Queries about product recommendations or similarities
+        - Queries about customer behavior or preferences
         
         Conversational Intent (use ChatGPT directly):
         - Greetings, small talk
@@ -33,14 +39,19 @@ class IntentDetector:
         Return JSON response:
         {
             "is_data_query": true/false,
-            "primary_intent": "conversational/data_analysis/forecasting/anomaly_detection/visualization",
+            "primary_intent": "conversational/data_analysis/forecasting/anomaly_detection/visualization/semantic_search",
             "required_agents": ["list", "of", "agents", "if", "data", "query"],
             "reasoning": "explanation of classification",
             "needs_clarification": true/false,
             "clarification_question": "if clarification needed"
         }
         
-        Available agents: SQL_AGENT, INSIGHT_AGENT, FORECAST_AGENT, ANOMALY_AGENT, VISUALIZATION_AGENT
+        Available agents: SQL_AGENT, INSIGHT_AGENT, FORECAST_AGENT, ANOMALY_AGENT, VISUALIZATION_AGENT, VECTOR_AGENT
+        
+        IMPORTANT: 
+        - Queries asking for "best products", "find products", "show me products", etc. should use VECTOR_AGENT
+        - Queries asking for "similar customers", "find customers", etc. should use VECTOR_AGENT
+        - These are DATA QUERIES, not conversational queries
         """
     
     def detect_intent(self, user_query, has_active_dataset=True):
@@ -79,6 +90,22 @@ class IntentDetector:
                 "primary_intent": "conversational",
                 "required_agents": [],
                 "reasoning": "Detected as conversational/greeting",
+                "needs_clarification": False,
+                "clarification_question": ""
+            }
+        
+        # Check for semantic search queries (products/customers)
+        semantic_keywords = ['product', 'products', 'item', 'items', 'customer', 'customers', 
+                            'similar', 'best', 'top', 'find', 'search', 'show me', 'looking for',
+                            'dairy', 'bakery', 'electronics', 'clothing', 'beauty', 
+                            'who buy', 'who bought', 'like', 'recommend']
+        
+        if any(keyword in query_lower for keyword in semantic_keywords):
+            return {
+                "is_data_query": True,
+                "primary_intent": "semantic_search",
+                "required_agents": ["VECTOR_AGENT"],
+                "reasoning": "Detected as semantic search query for products or customers",
                 "needs_clarification": False,
                 "clarification_question": ""
             }
