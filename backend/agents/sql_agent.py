@@ -103,7 +103,6 @@ class SQLAgent:
     def _get_table_schema(self, table_name):
         """Get table schema information"""
         try:
-            from backend.utils.database import db_manager
             query = f"""
                 SELECT column_name, data_type
                 FROM information_schema.columns
