@@ -266,10 +266,14 @@ async def set_active_dataset(request: dict):
                 "error": "Table name is required"
             }
         
+        logger.info(f"🔄 Setting active dataset to: {table_name}")
         success = dataset_manager.set_active_dataset(table_name)
         
         if success:
-            active_dataset = dataset_manager.get_active_dataset()
+            # FORCE REFRESH to ensure cache is cleared
+            active_dataset = dataset_manager.get_active_dataset(force_refresh=True)
+            logger.info(f"✅ Dataset switch successful: {active_dataset['table_name']}")
+            
             return {
                 "success": True,
                 "message": f"Dataset '{table_name}' is now active",
@@ -283,6 +287,8 @@ async def set_active_dataset(request: dict):
             
     except Exception as e:
         logger.error(f"Error setting active dataset: {e}")
+        import traceback
+        traceback.print_exc()
         return {
             "success": False,
             "error": str(e)
@@ -292,7 +298,8 @@ async def set_active_dataset(request: dict):
 async def get_active_dataset():
     """Get the currently active dataset"""
     try:
-        active_dataset = dataset_manager.get_active_dataset()
+        # FORCE REFRESH to get latest from database
+        active_dataset = dataset_manager.get_active_dataset(force_refresh=True)
         
         if active_dataset:
             return {
@@ -483,6 +490,10 @@ async def chat_endpoint(request: ChatRequest):
         is_data_query = plan.get('is_data_query', False) and has_active_dataset
         
         if is_data_query:
+            # FORCE REFRESH active dataset before executing agent plan
+            active_dataset_fresh = dataset_manager.get_active_dataset(force_refresh=True)
+            logger.info(f"📊 Executing with active dataset: {active_dataset_fresh['table_name'] if active_dataset_fresh else 'None'}")
+            
             # Use agents for data analysis
             results = await execute_agent_plan(plan, has_active_dataset)
             response_data = results.get('data', {}) or {}
@@ -537,14 +548,25 @@ async def execute_agent_plan(plan, has_database_tables):
     forecasts = ""
     anomalies = ""
     
-    # Ensure vector_db is in sync with DB-backed active dataset for this request
-    active_dataset = dataset_manager.get_active_dataset()
+    # FORCE REFRESH: Ensure we have the latest active dataset
+    active_dataset = dataset_manager.get_active_dataset(force_refresh=True)
     if active_dataset and active_dataset.get('table_name'):
         try:
             vector_db.set_active_dataset(active_dataset['table_name'])
+            logger.info(f"🔄 Agent plan executing with dataset: {active_dataset['table_name']}")
         except Exception as sync_err:
             logger.warning(f"Agent plan sync warning: {sync_err}")
     table_name = active_dataset['table_name'] if active_dataset else None
+    
+    # Check if this is a pure vector search query
+    if (len(plan.get('execution_plan', [])) == 1 and 
+        plan['execution_plan'][0].get('agent') == 'VECTOR_AGENT'):
+        logger.info("🔍 Pure vector search query detected")
+        vector_response = vector_agent.handle_semantic_query(user_query)
+        return {
+            'final_response': vector_response,
+            'data': None
+        }
     
     # Execute each agent in the plan
     for step in plan.get('execution_plan', []):
@@ -566,7 +588,7 @@ async def execute_agent_plan(plan, has_database_tables):
         
         elif agent_name == "INSIGHT_AGENT" and data_results is not None:
             # Generate insights from data
-            insights = insight_agent.generate_insights(user_query, data_results)
+            insights = analysis_agent.generate_insights(user_query, data_results)
         
         elif agent_name == "FORECAST_AGENT" and data_results is not None:
             # Generate forecasts

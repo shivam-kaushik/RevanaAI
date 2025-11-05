@@ -27,13 +27,21 @@ class VectorAgent:
             
             if query_type == "product_search":
                 print("🔍 Performing product semantic search...")
-                results = self.vector_store.semantic_search_products(user_query, limit=5)
+                # Extract category filter if present
+                category = self.extract_category_filter(user_query)
+                # Extract city filter if present
+                city = self.extract_city_filter(user_query)
+                if city:
+                    print(f"📍 City filter detected: {city}")
+                results = self.vector_store.semantic_search_products(user_query, limit=10, category_filter=category, city_filter=city)
                 print(f"📦 Found {len(results)} similar products")
                 return self.format_product_results(results, user_query)
             
             elif query_type == "customer_search":
                 print("👥 Performing customer semantic search...")
-                results = self.vector_store.semantic_search_customers(user_query, limit=5)
+                # Use dataset_id if available
+                dataset_id = getattr(Config, 'ACTIVE_DATASET_ID', None) or 'default'
+                results = self.vector_store.semantic_search_customers(user_query, limit=10, dataset_id=dataset_id)
                 print(f"👤 Found {len(results)} similar customers")
                 return self.format_customer_results(results, user_query)
             
@@ -103,40 +111,105 @@ class VectorAgent:
             logger.error(f"Category extraction error: {e}")
             return None
     
+    def extract_city_filter(self, query: str) -> str:
+        """Extract city/location from query"""
+        try:
+            response = self.client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": """
+                    Extract the city or location name from the query. Common cities: 
+                    Chicago, New York, Los Angeles, Phoenix, Houston, etc.
+                    Return only the city name or "None" if no city found.
+                    """},
+                    {"role": "user", "content": query}
+                ],
+                temperature=0.1,
+                max_tokens=50
+            )
+            
+            city = response.choices[0].message.content.strip()
+            return None if city.lower() == "none" else city
+            
+        except Exception as e:
+            logger.error(f"City extraction error: {e}")
+            return None
+    
     def format_product_results(self, results: list, original_query: str) -> str:
-        """Format product search results"""
+        """Format product search results with rich details"""
         if not results:
             return f"🔍 No similar products found for '{original_query}'"
         
-        response = f"🔍 **Semantic Search Results for '{original_query}':**\n\n"
+        response = f"🔍 **Top {len(results)} Products for '{original_query}':**\n\n"
         
         for i, product in enumerate(results, 1):
-            response += f"**{i}. {product['product_name']}**\n"
-            response += f"   • Category: {product['product_category']}\n"
-            response += f"   • Similarity: {product['similarity']:.2%}\n"
-            if product.get('description'):
-                response += f"   • Description: {product['description']}\n"
+            response += f"**{i}. {product.get('product_name', 'Unknown')}**\n"
+            
+            if product.get('product_category') and product.get('product_category') != 'N/A':
+                response += f"   📁 Category: {product['product_category']}\n"
+            
+            response += f"   📊 Similarity: {product.get('similarity', 0):.1f}%\n"
+            
+            if product.get('description') and product.get('description') != 'N/A':
+                desc = product['description']
+                if len(desc) > 150:
+                    desc = desc[:150] + "..."
+                response += f"   📝 {desc}\n"
+            
+            # Show metadata insights if available
+            if product.get('metadata') and isinstance(product['metadata'], dict):
+                meta = product['metadata']
+                if meta.get('most_popular_city'):
+                    response += f"   📍 Most Popular: {meta['most_popular_city']}\n"
+                if meta.get('purchase_count'):
+                    response += f"   🛒 Purchased {meta['purchase_count']} times\n"
+                if meta.get('total_revenue'):
+                    response += f"   💰 Revenue: ${float(meta['total_revenue']):.2f}\n"
+                if meta.get('total_quantity_sold'):
+                    response += f"   � Total Sold: {meta['total_quantity_sold']} units\n"
+            
             response += "\n"
         
-        response += f"*Found {len(results)} similar products using pgvector semantic search*"
+        response += f"*Semantic search powered by pgvector & OpenAI embeddings*"
         return response
     
     def format_customer_results(self, results: list, original_query: str) -> str:
-        """Format customer search results"""
+        """Format customer search results with rich details"""
         if not results:
             return f"👥 No similar customers found for '{original_query}'"
         
-        response = f"👥 **Semantic Search Results for '{original_query}':**\n\n"
+        response = f"👥 **Top {len(results)} Similar Customers for '{original_query}':**\n\n"
         
         for i, customer in enumerate(results, 1):
-            response += f"**{i}. Customer {customer['customer_id']}**\n"
-            response += f"   • Preferences: {customer.get('preferences', 'N/A')}\n"
-            response += f"   • Similarity: {customer['similarity']:.2%}\n"
-            if customer.get('purchase_history'):
-                response += f"   • History: {customer['purchase_history']}\n"
+            response += f"**{i}. {customer.get('customer_id', 'Unknown')}**\n"
+            response += f"   🎯 Similarity: {customer.get('similarity', 0):.1f}%\n"
+            
+            if customer.get('preferences') and customer.get('preferences') != 'N/A':
+                response += f"   ❤️ Preferences: {customer['preferences']}\n"
+            
+            if customer.get('purchase_history') and customer.get('purchase_history') != 'N/A':
+                history = customer['purchase_history']
+                if len(history) > 150:
+                    history = history[:150] + "..."
+                response += f"   📜 {history}\n"
+            
+            # Show metadata insights if available
+            if customer.get('metadata') and isinstance(customer['metadata'], dict):
+                meta = customer['metadata']
+                if meta.get('transaction_count'):
+                    response += f"   🛍️ Transactions: {meta['transaction_count']}\n"
+                if meta.get('total_spent'):
+                    try:
+                        spent = float(meta['total_spent'])
+                        response += f"   💵 Total Spent: ${spent:.2f}\n"
+                    except:
+                        pass
+                if meta.get('primary_city'):
+                    response += f"   📍 Location: {meta['primary_city']}\n"
+            
             response += "\n"
         
-        response += f"*Found {len(results)} similar customers using pgvector semantic search*"
+        response += f"*Semantic search powered by pgvector & OpenAI embeddings*"
         return response
     
     def format_hybrid_results(self, results: list, original_query: str) -> str:
