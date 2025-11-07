@@ -1,9 +1,7 @@
 import logging
 import re
-import json
-from pathlib import Path
 from openai import OpenAI
-from backend.config import Config
+from backend.config import Config, USE_QWEN_MODEL
 from backend.utils.dataset_manager import DatasetManager
 from backend.utils.database import db_manager
 from backend.utils.vector_db import vector_db
@@ -16,13 +14,11 @@ class SQLAgent:
         self.client = OpenAI(api_key=Config.OPENAI_API_KEY)
         self.dataset_manager = DatasetManager()
 
-        # Try loading Qwen Text2SQL model
+        # Try loading embedded Qwen Text2SQL
         try:
             from backend.agents.text2sql_qwen.model_loader import get_model
             from backend.agents.text2sql_qwen.prompting import build_messages
-            from backend.config import USE_QWEN_MODEL
-
-            self.use_qwen = USE_QWEN_MODEL
+            self.use_qwen = bool(USE_QWEN_MODEL)
             if self.use_qwen:
                 self.qwen_model = get_model()
                 self.qwen_prompt_builder = build_messages
@@ -33,6 +29,9 @@ class SQLAgent:
             logger.warning(f"⚠️ Could not initialize Qwen model: {e}")
             self.qwen_model = None
             self.use_qwen = False
+
+        logger.info(
+            f"USE_QWEN_MODEL={getattr(self, 'use_qwen', False)} | qwen_model_is_none={self.qwen_model is None}")
 
     def generate_sql(self, user_query, active_table=None):
         """Generate SQL query using Qwen first, then GPT fallback"""
@@ -57,30 +56,53 @@ class SQLAgent:
             schema_info = self._get_table_schema(active_table)
             schema_context = vector_db.get_schema_context(user_query)
 
-            # Try Qwen model first
+            # ---------- QWEN TRY FIRST ----------
             if self.qwen_model and self.use_qwen:
                 try:
-                    logger.info("🚀 Trying Qwen Text2SQL model...")
-                    from backend.agents.text2sql_qwen.prompting import build_messages
-                    messages = build_messages(
+                    logger.info("🚀 Trying Qwen Text2SQL model first...")
+                    messages = self.qwen_prompt_builder(
                         question=user_query,
                         db_schema=f"{schema_info}\n{schema_context}",
                     )
-                    response = self.qwen_model.create_chat_completion(
-                        messages=messages)
-                    if response and "choices" in response:
-                        sql_query = response["choices"][0]["message"]["content"].strip(
-                        )
-                        sql_query = self._clean_sql(sql_query)
-                        validated_sql = self._validate_sql(sql_query)
-                        if validated_sql:
-                            logger.info("✅ Qwen model succeeded.")
-                            return validated_sql, None
+
+                    qresp = self.qwen_model.create_chat_completion(
+                        messages=messages,
+                        temperature=0,
+                        max_tokens=512,
+                    )
+
+                    content = (
+                        qresp.get("choices", [{}])[0]
+                             .get("message", {})
+                             .get("content", "")
+                    ).strip()
+
+                    logger.info(
+                        f"🧾 Qwen raw output: {content[:200]}{'...' if len(content) > 200 else ''}")
+
+                    sql_query = self._clean_sql(content)
+
+                    # If the model added extra text, extract the first SELECT ... ;
+                    if not sql_query.lower().startswith("select"):
+                        m = re.search(r"(?is)\bselect\b.*?;", sql_query)
+                        if m:
+                            sql_query = m.group(0).strip()
+
+                    logger.info(f"🧪 Qwen cleaned candidate: {sql_query}")
+
+                    validated_sql = self._validate_sql(sql_query)
+                    if validated_sql:
+                        logger.info("✅ Qwen succeeded (using model output).")
+                        return validated_sql, None
+                    else:
+                        logger.warning(
+                            "⚠️ Qwen produced invalid SQL; will fall back to GPT.")
+
                 except Exception as qe:
                     logger.warning(
-                        f"⚠️ Qwen model failed, fallback to GPT: {qe}")
+                        f"⚠️ Qwen exception; falling back to GPT. Details: {qe}")
 
-            # GPT fallback
+            # ---------- GPT FALLBACK ----------
             logger.info("💬 Using GPT fallback...")
             sql_query = self._generate_sql_with_gpt(
                 user_query, active_table, schema_info, schema_context)
@@ -117,14 +139,17 @@ class SQLAgent:
         sql_query = response.choices[0].message.content.strip()
         return self._clean_sql(sql_query)
 
-    def _clean_sql(self, sql_query):
-        if sql_query.startswith("```sql"):
-            sql_query = sql_query.replace(
-                "```sql", "").replace("```", "").strip()
-        return sql_query
+    def _clean_sql(self, sql_query: str) -> str:
+        if not sql_query:
+            return ""
+        s = sql_query.strip()
+        if s.startswith("```"):
+            s = s.strip("`")
+            s = s.replace("sql\n", "").replace("SQL\n", "")
+        return s.strip()
 
-    # keep all your validation and date-fixing helpers unchanged
     def _get_table_schema(self, table_name):
+        """Get table schema information"""
         try:
             query = f"""
                 SELECT column_name, data_type
@@ -142,11 +167,13 @@ class SQLAgent:
             return f"Table: {table_name} (schema unavailable)"
 
     def _validate_sql(self, sql_query):
+        """Basic SQL validation"""
         if not sql_query:
             return None
-        if not sql_query.strip().upper().startswith("SELECT"):
+        if not sql_query.strip().upper().startswith('SELECT'):
             return None
-        bad_ops = ["DROP", "DELETE", "UPDATE", "INSERT", "ALTER", "CREATE"]
-        if any(op in sql_query.upper() for op in bad_ops):
+        dangerous_keywords = ['DROP', 'DELETE',
+                              'UPDATE', 'INSERT', 'ALTER', 'CREATE']
+        if any(keyword in sql_query.upper() for keyword in dangerous_keywords):
             return None
         return sql_query
