@@ -1,0 +1,96 @@
+# backend/tools/viz_tool.py
+import os
+import matplotlib.pyplot as plt
+import pandas as pd
+
+class VizTool:
+    def __init__(self, output_dir="frontend/static/forecast"):
+        self.output_dir = output_dir
+        os.makedirs(self.output_dir, exist_ok=True)
+  
+    # viz_tool.py
+    def _web_path(self, p: str) -> str:
+        p = p.replace("\\", "/")
+        if "frontend/static/" in p:
+            return p.split("frontend/", 1)[1]   # -> 'static/forecast/....png'
+        if "static/" in p:
+            return p[p.index("static/"):]       # fallback
+        return p
+
+
+    def plot_historical(self, df, tag, title="Historical Data", ylabel="Value"):
+        fig, ax = plt.subplots(figsize=(10, 6))
+        ax.plot(df["ds"], df["y"], label="Actual", linewidth=2)
+        ax.set_title(title)
+        ax.set_xlabel("Date")
+        ax.set_ylabel(ylabel)
+        ax.legend()
+        fig.tight_layout()
+        path = os.path.join(self.output_dir, f"hist_{tag}.png")
+        fig.savefig(path, dpi=200)
+        plt.close(fig)
+        return self._web_path(path)
+
+    def plot_combined(self, hist_df, fcst_df, tag,
+                      title="Total Sales Forecast (Monthly)",
+                      ylabel="Total Sales"):
+        """
+        One figure with full history (blue) and forecast continuation (orange)
+        starting exactly at the last historical month, with a 95% band.
+        hist_df: columns ['ds','y'] monthly
+        fcst_df: columns ['ds','yhat','yhat_lower','yhat_upper'] monthly
+        """
+        # sort & ensure datetime
+        hist_df = hist_df.copy()
+        hist_df["ds"] = pd.to_datetime(hist_df["ds"])
+        hist_df = hist_df.sort_values("ds")
+
+        fcst_df = fcst_df.copy()
+        fcst_df["ds"] = pd.to_datetime(fcst_df["ds"])
+        fcst_df = fcst_df.sort_values("ds")
+
+        last_ds = hist_df["ds"].max()
+        last_y  = float(hist_df.loc[hist_df["ds"] == last_ds, "y"].iloc[0])
+
+        # Build the forecast line so it *continues* from the last actual point
+        fc_future = fcst_df[fcst_df["ds"] > last_ds]
+        fc_line = pd.concat([
+            pd.DataFrame([{
+                "ds": last_ds,
+                "yhat": last_y,
+                "yhat_lower": last_y,
+                "yhat_upper": last_y
+            }]),
+            fc_future[["ds","yhat","yhat_lower","yhat_upper"]]
+        ], ignore_index=True)
+
+        fig, ax = plt.subplots(figsize=(18, 8))
+
+        # 1) Full history
+        ax.plot(hist_df["ds"], hist_df["y"], linewidth=2, label="Actual (Monthly)")
+
+        # 2) Forecast (orange) from the last actual forward
+        ax.plot(fc_line["ds"], fc_line["yhat"], linewidth=3, label="Forecast (yhat)", color="tab:orange")
+
+        # 3) 95% confidence band only for future months
+        if not fc_future.empty:
+            ax.fill_between(fc_future["ds"], fc_future["yhat_lower"], fc_future["yhat_upper"],
+                            alpha=0.20, label="95% interval", color="tab:orange")
+
+        # A small marker where the forecast starts (optional)
+        ax.axvline(last_ds, linestyle="--", linewidth=1, alpha=0.5)
+
+        ax.set_title(title)
+        ax.set_xlabel("Date")
+        ax.set_ylabel(ylabel)
+        ax.set_xlim(hist_df["ds"].min(), (fcst_df["ds"].max()))
+        ax.legend()
+        fig.tight_layout()
+
+        out = os.path.join(self.output_dir, f"combined_{tag}.png")
+        fig.savefig(out, dpi=200)
+        plt.close(fig)
+        return self._web_path(out)
+    
+    
+     

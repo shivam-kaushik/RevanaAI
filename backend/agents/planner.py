@@ -59,9 +59,20 @@ class PlannerAgent:
             })
             return execution_steps
 
-        if "FORECAST_AGENT" in agents and "SQL_AGENT" not in agents:
-            agents = ["SQL_AGENT"] + agents
+        #if "FORECAST_AGENT" in agents and "SQL_AGENT" not in agents:
+            #agents = ["SQL_AGENT"] + agents
         
+        # ------- New forecast approaches ---------
+        # Special case: VECTOR_AGENT only (semantic search)
+        if "FORECAST_AGENT" in agents:
+            execution_steps.append({
+                "step": 1,
+                "agent": "FORECAST_AGENT",
+                "description": "End-to-end forecast (NL→SQL→fetch→Prophet→viz→summary)",
+                "dependencies": []
+            })
+            return execution_steps
+        # ------------------------------------------
         # Always start with SQL agent for data queries (except vector-only)
         if "SQL_AGENT" in agents:
             execution_steps.append({
