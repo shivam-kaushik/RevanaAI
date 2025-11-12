@@ -26,13 +26,16 @@ STRICT RULES (do not violate):
   (never return constant zeros).
 - Use monthly aggregation unless the user asks otherwise:
   date_trunc('month', <date_expr>)::date AS ds
-- All date strings in this database are stored as text in format 'YYYY-MM-DD HH24:MI:SS'.
-- When parsing text → timestamp, ALWAYS use:
-  to_timestamp(<text_col>, 'YYYY-MM-DD HH24:MI:SS')
-- If a column is already DATE/TIMESTAMP, do NOT wrap it in to_timestamp().
-- If the column is already DATE/TIMESTAMP, do NOT wrap with to_timestamp.
-- y must be a real metric (e.g., SUM(line_total), SUM(quantity), COUNT(*), etc.).
-- Include a WHERE that excludes future dates (<= CURRENT_DATE) unless the user asks otherwise.
+
+CRITICAL DATE FORMAT RULES:
+- The 'invoicedate' column is stored as TEXT in format 'MM/DD/YYYY HH:MI' (e.g., '12/1/2010 8:26')
+- When parsing invoicedate, you MUST use: to_timestamp(invoicedate, 'MM/DD/YYYY HH24:MI')
+- NEVER use 'YYYY-MM-DD HH24:MI:SS' format for invoicedate
+- Example: date_trunc('month', to_timestamp(invoicedate, 'MM/DD/YYYY HH24:MI'))::date AS ds
+
+- y must be a real metric (e.g., SUM(quantity), SUM(unitprice * quantity), COUNT(*), etc.).
+- Include a WHERE that excludes future dates (<= CURRENT_DATE) using: 
+  WHERE to_timestamp(invoicedate, 'MM/DD/YYYY HH24:MI')::date <= CURRENT_DATE
 - Return ONLY SQL (no comments, no markdown).
 
 Schema reference:
@@ -48,17 +51,17 @@ SQL:
         print("\n================= Generated SQL =================")
         print(sql)
         print("=================================================\n")
+        
         # ---- Guardrails: fix common LLM slips ----
-
-        # 1) Normalize ANY to_timestamp(..., '...') mask to the correct one
+        # Fix any incorrect date format patterns to use the correct MM/DD/YYYY HH24:MI format
         sql = re.sub(
-            r"to_timestamp\(([^,]+),\s*'[^']*'\)",
-            r"to_timestamp(\1, 'YYYY-MM-DD HH24:MI:SS')",
+            r"to_timestamp\(invoicedate,\s*'[^']*'\)",
+            r"to_timestamp(invoicedate, 'MM/DD/YYYY HH24:MI')",
             sql,
             flags=re.IGNORECASE
         )
 
-        # 2) Ensure monthly truncation alias is 'ds'
+        # Ensure monthly truncation alias is 'ds'
         sql = re.sub(
             r"date_trunc\('month'\s*,\s*([^)]+)\)\s*::date\s+AS\s+\w+",
             r"date_trunc('month', \1)::date AS ds",
@@ -66,7 +69,7 @@ SQL:
             flags=re.IGNORECASE
         )
 
-        # 3) Trim any garbage after final semicolon
+        # Trim any garbage after final semicolon
         if ";" in sql:
             sql = sql[: sql.rfind(";") + 1]
 
