@@ -65,6 +65,14 @@ class ForecastAgent:
         tag = self._slug(nl_query)[:40]
         #combined_png = self.viz.plot_combined(df, fcst, tag)
         hist_path = self.viz.plot_historical(df, tag, title="Historical Data", ylabel="Total Sales")
+        future_path = self.viz.plot_future_only(
+            df,
+            fcst[["ds","yhat","yhat_lower","yhat_upper"]].copy(),
+            tag=tag,
+            title = "Forecast (Monthly)",
+            y_label= "Total Sales",
+            dpi = 150
+        )
         combined_path = self.viz.plot_combined(
             hist_df=df,
             fcst_df=fcst[["ds","yhat","yhat_lower","yhat_upper"]].copy(),

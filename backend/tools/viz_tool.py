@@ -1,6 +1,7 @@
 # backend/tools/viz_tool.py
 import os
 import matplotlib.pyplot as plt
+from matplotlib.ticker import StrMethodFormatter
 import pandas as pd
 
 class VizTool:
@@ -17,7 +18,50 @@ class VizTool:
             return p[p.index("static/"):]       # fallback
         return p
 
+    def plot_future_only(
+        self,
+        history: pd.DataFrame,
+        forecast: pd.DataFrame,
+        tag: str,
+        title: str,
+        y_label: str = "Total Sales",
+        dpi: int = 150
+    ):
+        """
+        Draw only the forecast horizon with uncertainty band.
+        history: monthly ['ds','y'] (used only to find last actual date)
+        forecast: Prophet output containing both history+future; we will slice future only.
+        """
+        # last actual point
+        last_ds = pd.to_datetime(history['ds']).max()
 
+        # FUTURE slice
+        fc = forecast[forecast['ds'] > last_ds].copy()
+        if fc.empty:
+            # As a safeguard, fall back to last N rows if slicing failed
+            fc = forecast.tail(12).copy()
+
+        fig, ax = plt.subplots(figsize=(14, 4))
+        ax.plot(fc['ds'], fc['yhat'], label='Forecast (yhat)', linewidth=2)
+        ax.fill_between(fc['ds'], fc['yhat_lower'], fc['yhat_upper'],
+                        alpha=0.25, label='95% interval')
+
+        # cosmetics
+        ax.set_title(title, pad=12)
+        ax.set_xlabel("Date")
+        ax.set_ylabel(y_label)
+        ax.yaxis.set_major_formatter(StrMethodFormatter('{x:,.0f}'))
+        ax.grid(alpha=0.25)
+        ax.legend(loc='upper left')
+
+        # save
+        save_path = os.path.join(self.output_dir, f"future_{tag}.png")
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        plt.tight_layout()
+        plt.savefig(save_path, dpi=dpi)
+        plt.close(fig)
+        return self._web_path(save_path)
+        
     def plot_historical(self, df, tag, title="Historical Data", ylabel="Value"):
         fig, ax = plt.subplots(figsize=(10, 6))
         ax.plot(df["ds"], df["y"], label="Actual", linewidth=2)

@@ -63,6 +63,16 @@ class PlannerAgent:
             #agents = ["SQL_AGENT"] + agents
         
         # ------- New forecast approaches ---------
+        q = intent_result.get("user_query", "").lower()
+
+        # NEW: if user explicitly asks to predict/forecast for N periods, run forecast end-to-end
+        if any(k in q for k in ["predict", "forecast", "projection", "next ", "future"]):
+            return [{
+                "step": 1,
+                "agent": "FORECAST_AGENT",
+                "description": "End-to-end forecast (NL→SQL→fetch→Prophet→viz→summary)",
+                "dependencies": []
+            }]
         # Special case: VECTOR_AGENT only (semantic search)
         if "FORECAST_AGENT" in agents:
             execution_steps.append({
