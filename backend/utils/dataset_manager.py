@@ -6,9 +6,21 @@ from backend.utils.vector_db import vector_db
 logger = logging.getLogger(__name__)
 
 class DatasetManager:
+    _instance = None
+    _initialized = False
+    
+    def __new__(cls):
+        """Singleton pattern - ensure only one instance exists"""
+        if cls._instance is None:
+            cls._instance = super(DatasetManager, cls).__new__(cls)
+        return cls._instance
+    
     def __init__(self):
-        self.active_dataset = None
-        logger.info("📊 Dataset Manager initialized")
+        """Initialize only once"""
+        if not DatasetManager._initialized:
+            self.active_dataset = None
+            logger.info("📊 Dataset Manager initialized (Singleton)")
+            DatasetManager._initialized = True
     
     def ensure_datasets_table(self):
         """Ensure the datasets table exists"""
@@ -112,7 +124,17 @@ class DatasetManager:
                 ORDER BY created_at DESC
             """
             result = db_manager.execute_query(query)
-            return result.to_dict('records') if not result.empty else []
+            if result.empty:
+                return []
+
+            # Filter out entries whose underlying table no longer exists
+            try:
+                existing_tables = set(db_manager.get_active_tables())
+                filtered = result[result['table_name'].isin(existing_tables)]
+                return filtered.to_dict('records') if not filtered.empty else []
+            except Exception:
+                # Fallback to original list if table existence check fails
+                return result.to_dict('records')
         except Exception as e:
             logger.error(f"Failed to get datasets: {e}")
             return []
@@ -120,6 +142,8 @@ class DatasetManager:
     def set_active_dataset(self, table_name):
         """Set a specific dataset as active"""
         try:
+            logger.info(f"🔄 Setting active dataset to: {table_name}")
+            
             # First, set all datasets to inactive
             inactive_result = db_manager.execute_non_query("UPDATE revana_datasets SET is_active = FALSE")
             logger.debug(f"Set all datasets inactive: {inactive_result}")
@@ -131,8 +155,9 @@ class DatasetManager:
             )
             logger.debug(f"Set {table_name} active: {active_result}")
 
-            # Clear the cache to force refresh
+            # CRITICAL: Clear the cache to force refresh
             self.active_dataset = None
+            logger.info(f"🗑️ Cleared dataset cache")
 
             # Verify the update worked by querying the dataset
             dataset_info = db_manager.execute_query(
@@ -143,21 +168,31 @@ class DatasetManager:
             if not dataset_info.empty:
                 self.active_dataset = self._map_dataset_fields(dataset_info.iloc[0].to_dict())
                 logger.info(f"✅ Active dataset set to: {table_name}")
+                
+                # CRITICAL: Immediately sync vector_db and preload schema
                 vector_db.set_active_dataset(table_name)
+                logger.info(f"✅ Vector DB synced to: {table_name}")
+                
                 return True
             else:
-                logger.error(f"Dataset not found or not active after update: {table_name}")
+                logger.error(f"❌ Dataset not found or not active after update: {table_name}")
                 return False
 
         except Exception as e:
-            logger.error(f"Failed to set active dataset: {e}")
+            logger.error(f"❌ Failed to set active dataset: {e}")
+            import traceback
+            traceback.print_exc()
             return False
     
-    def get_active_dataset(self):
-        """Get the currently active dataset"""
+    def get_active_dataset(self, force_refresh=False):
+        """Get the currently active dataset
+        
+        Args:
+            force_refresh: If True, bypass cache and query database
+        """
         try:
-            # First check cache
-            if self.active_dataset:
+            # Check cache first (unless force refresh)
+            if self.active_dataset and not force_refresh:
                 return self.active_dataset
             
             # Query the database for active dataset
@@ -167,9 +202,11 @@ class DatasetManager:
             if not result.empty:
                 self.active_dataset = self._map_dataset_fields(result.iloc[0].to_dict())
                 vector_db.set_active_dataset(self.active_dataset['table_name'])
+                logger.info(f"📊 Active dataset refreshed: {self.active_dataset['table_name']}")
                 return self.active_dataset
             else:
                 # Try to auto-set the latest dataset
+                logger.info("No active dataset found, attempting auto-set...")
                 return self.auto_set_latest_dataset()
                 
         except Exception as e:

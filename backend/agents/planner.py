@@ -12,7 +12,8 @@ class PlannerAgent:
             "INSIGHT_AGENT": "Generates insights and narratives from data",
             "FORECAST_AGENT": "Creates predictions and future trend forecasts", 
             "ANOMALY_AGENT": "Detects unusual patterns and outliers in data",
-            "VISUALIZATION_AGENT": "Creates charts and visualizations"
+            "VISUALIZATION_AGENT": "Creates charts and visualizations",
+            "VECTOR_AGENT": "Performs semantic search for products and customers"
         }
     
     def create_plan(self, user_query):
@@ -48,10 +49,20 @@ class PlannerAgent:
         execution_steps = []
         agents = intent_result["required_agents"]
 
+        # Special case: VECTOR_AGENT only (semantic search)
+        if "VECTOR_AGENT" in agents and len(agents) == 1:
+            execution_steps.append({
+                "step": 1,
+                "agent": "VECTOR_AGENT",
+                "description": "Perform semantic search using vector embeddings",
+                "dependencies": []
+            })
+            return execution_steps
+
         if "FORECAST_AGENT" in agents and "SQL_AGENT" not in agents:
             agents = ["SQL_AGENT"] + agents
         
-        # Always start with SQL agent for data queries
+        # Always start with SQL agent for data queries (except vector-only)
         if "SQL_AGENT" in agents:
             execution_steps.append({
                 "step": 1,

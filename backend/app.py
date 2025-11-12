@@ -19,13 +19,12 @@ from pydantic import BaseModel
 # Import our agents and utilities
 from backend.agents.planner import PlannerAgent
 from backend.agents.sql_agent import SQLAgent
-from backend.agents.insight_agent import InsightAgent
+from backend.agents.analysis_agent import AnalysisAgent
 from backend.agents.forecast_agent import ForecastAgent
 from backend.agents.anomaly_agent import AnomalyAgent
 from backend.utils.file_processor import FileProcessor
 from backend.utils.vector_db import vector_db
 from backend.config import Config
-from backend.agents.data_analyzer import DataAnalyzer
 from backend.agents.vector_agent import VectorAgent
 from backend.utils.dataset_manager import DatasetManager
 
@@ -47,12 +46,11 @@ app.add_middleware(
 # Initialize components
 planner = PlannerAgent()
 sql_agent = SQLAgent()
-insight_agent = InsightAgent()
+analysis_agent = AnalysisAgent()
 forecast_agent = ForecastAgent()
 anomaly_agent = AnomalyAgent()
 file_processor = FileProcessor()
 openai_client = OpenAI(api_key=Config.OPENAI_API_KEY)
-data_analyzer = DataAnalyzer()
 vector_agent = VectorAgent()
 dataset_manager = DatasetManager()
 
@@ -268,10 +266,14 @@ async def set_active_dataset(request: dict):
                 "error": "Table name is required"
             }
         
+        logger.info(f"🔄 Setting active dataset to: {table_name}")
         success = dataset_manager.set_active_dataset(table_name)
         
         if success:
-            active_dataset = dataset_manager.get_active_dataset()
+            # FORCE REFRESH to ensure cache is cleared
+            active_dataset = dataset_manager.get_active_dataset(force_refresh=True)
+            logger.info(f"✅ Dataset switch successful: {active_dataset['table_name']}")
+            
             return {
                 "success": True,
                 "message": f"Dataset '{table_name}' is now active",
@@ -285,6 +287,8 @@ async def set_active_dataset(request: dict):
             
     except Exception as e:
         logger.error(f"Error setting active dataset: {e}")
+        import traceback
+        traceback.print_exc()
         return {
             "success": False,
             "error": str(e)
@@ -294,7 +298,8 @@ async def set_active_dataset(request: dict):
 async def get_active_dataset():
     """Get the currently active dataset"""
     try:
-        active_dataset = dataset_manager.get_active_dataset()
+        # FORCE REFRESH to get latest from database
+        active_dataset = dataset_manager.get_active_dataset(force_refresh=True)
         
         if active_dataset:
             return {
@@ -332,7 +337,7 @@ async def get_table_info(table_name: str):
 
 @app.post("/analyze")
 async def analyze_data(request: ChatRequest):
-    """Analyze data using GPT-powered natural language queries"""
+    """Analyze data using the new agent architecture"""
     try:
         logger.info(f"Data analysis request: {request.message}")
         
@@ -346,38 +351,63 @@ async def analyze_data(request: ChatRequest):
         # Get active dataset info
         active_dataset = dataset_manager.get_active_dataset()
         
-        # Ensure data_analyzer has db_manager
-        from backend.utils.database import db_manager
-        if not hasattr(data_analyzer, 'db_manager') or data_analyzer.db_manager is None:
-            data_analyzer.set_db_manager(db_manager)
-        
-        # Use data analyzer for comprehensive analysis
-        analysis_result = data_analyzer.analyze_query(request.message)
-        
-        if "error" in analysis_result:
+        # Step 1: Generate SQL query
+        sql_query, sql_error = sql_agent.generate_sql(request.message)
+        if not sql_query:
             return {
                 "success": False,
-                "error": analysis_result["error"]
+                "error": f"Could not generate SQL query: {sql_error}"
             }
+        
+        # Step 2: Execute SQL query
+        from backend.utils.database import db_manager
+        try:
+            data_rows = db_manager.execute_query_dict(sql_query)
+            if not data_rows:
+                return {
+                    "success": False,
+                    "error": "No data found for your query"
+                }
+        except Exception as e:
+            logger.error(f"SQL execution error: {e}")
+            return {
+                "success": False,
+                "error": f"Database query error: {str(e)}"
+            }
+        
+        # Step 3: Generate insights
+        insights = analysis_agent.generate_insights(request.message, data_rows)
+        
+        # Step 4: Check if visualization is requested
+        charts = {}
+        user_query_lower = request.message.lower()
+        visualization_keywords = ['chart', 'graph', 'plot', 'visualize', 'show me', 'display', 'bar', 'pie', 'line', 'histogram']
+        
+        if any(keyword in user_query_lower for keyword in visualization_keywords):
+            chart_image, chart_error = analysis_agent.create_visualization(request.message, data_rows)
+            if chart_image:
+                charts['main'] = chart_image
+            elif chart_error:
+                logger.warning(f"Visualization failed: {chart_error}")
         
         # Format the response
         response_text = f"📊 **Analysis Results**\n\n"
         response_text += f"**Dataset:** {active_dataset['original_filename']}\n"
-        response_text += f"**SQL Query Used:**\n```sql\n{analysis_result['sql_query']}\n```\n\n"
-        response_text += f"**Data Insights:**\n{analysis_result['insights']}\n\n"
-        response_text += f"**Records Found:** {analysis_result['row_count']}\n"
+        response_text += f"**SQL Query Used:**\n```sql\n{sql_query}\n```\n\n"
+        response_text += f"**Data Insights:**\n{insights}\n\n"
+        response_text += f"**Records Found:** {len(data_rows)}\n"
         
         # Add sample data
-        if analysis_result['data']:
-            sample_data = pd.DataFrame(analysis_result['data']).head(5).to_string(index=False)
+        if data_rows:
+            sample_data = _format_data_table(data_rows[:5])
             response_text += f"**Sample Data:**\n```\n{sample_data}\n```\n"
         
         return {
             "success": True,
             "response": response_text,
-            "data": analysis_result['data'],
-            "charts": analysis_result.get('charts', {}),
-            "sql_query": analysis_result['sql_query']
+            "data": data_rows,
+            "charts": charts,
+            "sql_query": sql_query
         }
         
     except Exception as e:
@@ -422,6 +452,12 @@ async def chat_endpoint(request: ChatRequest):
         # Use dataset manager to check for active dataset
         has_active_dataset = dataset_manager.has_active_dataset()
         active_dataset_info = dataset_manager.get_active_dataset()
+        # Always sync in-memory vector_db with DB-backed active dataset for this process
+        try:
+            if active_dataset_info and active_dataset_info.get('table_name'):
+                vector_db.set_active_dataset(active_dataset_info['table_name'])
+        except Exception as sync_err:
+            logger.warning(f"Could not sync vector_db active dataset: {sync_err}")
         
         # Step 1: Plan the query execution
         plan = planner.create_plan(request.message)
@@ -454,6 +490,10 @@ async def chat_endpoint(request: ChatRequest):
         is_data_query = plan.get('is_data_query', False) and has_active_dataset
         
         if is_data_query:
+            # FORCE REFRESH active dataset before executing agent plan
+            active_dataset_fresh = dataset_manager.get_active_dataset(force_refresh=True)
+            logger.info(f"📊 Executing with active dataset: {active_dataset_fresh['table_name'] if active_dataset_fresh else 'None'}")
+            
             # Use agents for data analysis
             results = await execute_agent_plan(plan, has_active_dataset)
             response_data = results.get('data', {}) or {}
@@ -508,9 +548,25 @@ async def execute_agent_plan(plan, has_database_tables):
     forecasts = ""
     anomalies = ""
     
-    # Get active dataset from vector_db for consistency
-    table_name = vector_db.get_active_dataset()
-    active_dataset = dataset_manager.get_active_dataset() if table_name else None
+    # FORCE REFRESH: Ensure we have the latest active dataset
+    active_dataset = dataset_manager.get_active_dataset(force_refresh=True)
+    if active_dataset and active_dataset.get('table_name'):
+        try:
+            vector_db.set_active_dataset(active_dataset['table_name'])
+            logger.info(f"🔄 Agent plan executing with dataset: {active_dataset['table_name']}")
+        except Exception as sync_err:
+            logger.warning(f"Agent plan sync warning: {sync_err}")
+    table_name = active_dataset['table_name'] if active_dataset else None
+    
+    # Check if this is a pure vector search query
+    if (len(plan.get('execution_plan', [])) == 1 and 
+        plan['execution_plan'][0].get('agent') == 'VECTOR_AGENT'):
+        logger.info("🔍 Pure vector search query detected")
+        vector_response = vector_agent.handle_semantic_query(user_query)
+        return {
+            'final_response': vector_response,
+            'data': None
+        }
     
     # Execute each agent in the plan
     for step in plan.get('execution_plan', []):
@@ -532,7 +588,7 @@ async def execute_agent_plan(plan, has_database_tables):
         
         elif agent_name == "INSIGHT_AGENT" and data_results is not None:
             # Generate insights from data
-            insights = insight_agent.generate_insights(user_query, data_results)
+            insights = analysis_agent.generate_insights(user_query, data_results)
         
         elif agent_name == "FORECAST_AGENT" and data_results is not None:
             # Generate forecasts
@@ -577,6 +633,21 @@ async def get_chatgpt_response(user_query, has_dataset):
     except Exception as e:
         logger.error(f"ChatGPT error: {e}")
         return "I'm here to help! You can upload a CSV file for data analysis or ask me questions."
+
+def _format_data_table(rows):
+    """Format list of dicts as a simple table string"""
+    if not rows:
+        return "<empty>"
+    
+    # Build a simple aligned table string from list of dicts
+    cols = list(rows[0].keys())
+    col_widths = {c: max(len(str(c)), max((len(str(r.get(c, ''))) for r in rows), default=0)) for c in cols}
+    header = " | ".join(str(c).ljust(col_widths[c]) for c in cols)
+    sep = "-+-".join('-' * col_widths[c] for c in cols)
+    lines = [header, sep]
+    for r in rows:
+        lines.append(" | ".join(str(r.get(c, '')).ljust(col_widths[c]) for c in cols))
+    return "\n".join(lines)
 
 def build_final_response(insights, forecasts, anomalies, data_results, user_query):
     """Build the final response from all agent outputs"""
@@ -630,7 +701,6 @@ async def startup_event():
         from backend.utils.database import db_manager
         if db_manager.test_connection():
             logger.info("✅ Database connection successful")
-            data_analyzer.set_db_manager(db_manager)
         else:
             logger.warning("⚠ Database connection failed")
     except Exception as e:

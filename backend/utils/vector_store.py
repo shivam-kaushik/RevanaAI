@@ -1,6 +1,8 @@
 import logging
 import psycopg2
 import numpy as np
+import re
+import ast
 from typing import List, Dict, Any
 import openai
 from backend.config import Config
@@ -100,8 +102,30 @@ class PostgresVectorStore:
                 )
             """)
             
-            # ... rest of your table creation code
-            
+            # Ensure customer embeddings table exists as well
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS customer_embeddings (
+                    customer_id TEXT PRIMARY KEY,
+                    purchase_history TEXT,
+                    preferences TEXT,
+                    metadata JSONB,
+                    dataset_id TEXT,
+                    embedding vector(1536),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
+            # Create optional ivfflat indexes for speed (may require admin permissions)
+            try:
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_product_embeddings_embedding ON product_embeddings USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);")
+            except Exception:
+                logger.debug("Could not create ivfflat index for product_embeddings; skipping")
+
+            try:
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_customer_embeddings_embedding ON customer_embeddings USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);")
+            except Exception:
+                logger.debug("Could not create ivfflat index for customer_embeddings; skipping")
+
             conn.commit()
             print("✅ Vector tables created successfully")
             
@@ -114,10 +138,11 @@ class PostgresVectorStore:
             conn.close()
     
     def get_embedding(self, text: str) -> List[float]:
-        """Get OpenAI embedding for text"""
+        """Get OpenAI embedding for text using standardized model"""
         try:
+            # Use text-embedding-3-small for consistency across the project
             response = self.openai_client.embeddings.create(
-                model="text-embedding-ada-002",
+                model="text-embedding-3-small",
                 input=text
             )
             return response.data[0].embedding
@@ -220,8 +245,8 @@ class PostgresVectorStore:
             cursor.close()
             conn.close()
     
-    def semantic_search_products(self, query: str, limit: int = 5) -> List[Dict]:
-        """Find similar products using semantic search"""
+    def semantic_search_products(self, query: str, limit: int = 5, category_filter: str = None, city_filter: str = None) -> List[Dict]:
+        """Find similar products using semantic search with optional category and city filters"""
         if not self.vector_available:
             logger.warning("⚠️ Vector store not available - semantic search disabled")
             return []
@@ -235,31 +260,71 @@ class PostgresVectorStore:
             if not query_embedding:
                 return []
             
-            # Convert to PostgreSQL array format
-            query_embedding_array = "[" + ",".join(map(str, query_embedding)) + "]"
+            # Convert to PostgreSQL array format with full precision
+            query_embedding = [float(x) for x in query_embedding]
+            query_embedding_array = "[" + ",".join(format(float(x), '.18g') for x in query_embedding) + "]"
             
-            cursor.execute("""
-                SELECT 
-                    product_name,
-                    product_category,
-                    description,
-                    metadata,
-                    1 - (embedding <=> %s::vector) as similarity
+            # Inspect available columns
+            cursor.execute("SELECT column_name FROM information_schema.columns WHERE table_name = %s", ('product_embeddings',))
+            available_cols = [r[0] for r in cursor.fetchall()]
+            
+            if 'embedding' not in available_cols:
+                logger.error("product_embeddings table does not have an 'embedding' column")
+                return []
+            
+            # Build dynamic SELECT clause
+            select_cols = []
+            for c in ('product_name', 'product_category', 'description', 'metadata'):
+                if c in available_cols:
+                    select_cols.append(c)
+            
+            select_clause = ', '.join(select_cols) if select_cols else ''
+            if select_clause:
+                select_clause = select_clause + ', '
+            select_clause = select_clause + "GREATEST(0, 1 - (embedding <=> %s::vector)) as similarity"
+            
+            # Build WHERE clause for category and city filters
+            where_clauses = []
+            params = []
+            
+            if category_filter and 'product_category' in available_cols:
+                where_clauses.append("product_category ILIKE %s")
+                params.append(f"%{category_filter}%")
+            
+            # City filter: check metadata JSONB field for most_popular_city
+            if city_filter and 'metadata' in available_cols:
+                where_clauses.append("(metadata->>'most_popular_city')::text ILIKE %s")
+                params.append(f"%{city_filter}%")
+            
+            where_clause = ""
+            if where_clauses:
+                where_clause = "WHERE " + " AND ".join(where_clauses)
+            
+            sql = f"""
+                SELECT {select_clause}
                 FROM product_embeddings
+                {where_clause}
                 ORDER BY embedding <=> %s::vector
                 LIMIT %s
-            """, (query_embedding_array, query_embedding_array, limit))
+            """
             
+            # Build parameters: [vector_for_SELECT, category_filter (optional), vector_for_ORDER, limit]
+            exec_params = [query_embedding_array] + params + [query_embedding_array, limit]
+            cursor.execute(sql, exec_params)
+            
+            rows = cursor.fetchall()
             results = []
-            for row in cursor.fetchall():
-                results.append({
-                    'product_name': row[0],
-                    'product_category': row[1],
-                    'description': row[2],
-                    'metadata': row[3],
-                    'similarity': float(row[4])
-                })
+            for row in rows:
+                item = {}
+                for idx, col in enumerate(select_cols):
+                    item[col] = row[idx] if row[idx] is not None else 'N/A'
+                # Similarity is last column, convert to percentage
+                sim = float(row[len(select_cols)])
+                item['similarity'] = round(sim * 100.0, 2)
+                results.append(item)
             
+            # Sort by similarity descending
+            results.sort(key=lambda x: x.get('similarity', 0), reverse=True)
             return results
             
         except Exception as e:
@@ -269,7 +334,7 @@ class PostgresVectorStore:
             cursor.close()
             conn.close()
     
-    def semantic_search_customers(self, query: str, limit: int = 5) -> List[Dict]:
+    def semantic_search_customers(self, query: str, limit: int = 5, dataset_id: str = None) -> List[Dict]:
         """Find similar customers using semantic search"""
         if not self.vector_available:
             logger.warning("⚠️ Vector store not available - semantic search disabled")
@@ -279,36 +344,124 @@ class PostgresVectorStore:
         cursor = conn.cursor()
         
         try:
-            query_embedding = self.get_embedding(query)
-            
+            # If the user asked for customers similar to a specific customer id like 'CUST010',
+            # normalize it to the repo's Customer_<n> ids and, if present, use that customer's
+            # stored embedding as the query vector (more accurate than re-embedding the id string).
+            query_embedding = None
+            cust_match = re.search(r"\bCUST0*(\d+)\b", query, re.IGNORECASE)
+            if cust_match:
+                cust_num = int(cust_match.group(1))
+                cust_id = f"Customer_{cust_num}"
+                try:
+                    cursor.execute("SELECT embedding FROM customer_embeddings WHERE customer_id = %s", (cust_id,))
+                    row = cursor.fetchone()
+                    if row and row[0]:
+                        # row[0] may come back as a Python list, tuple, numpy array, memoryview or string
+                        raw = row[0]
+                        # If it's already a list/tuple/ndarray, convert to list of floats
+                        if isinstance(raw, (list, tuple, np.ndarray)):
+                            query_embedding = [float(x) for x in raw]
+                        elif isinstance(raw, memoryview):
+                            try:
+                                s = raw.tobytes().decode('utf-8')
+                            except Exception:
+                                s = str(raw)
+                            try:
+                                query_embedding = [float(x) for x in ast.literal_eval(s)]
+                            except Exception:
+                                nums = re.findall(r"[-+]?[0-9]*\.?[0-9]+(?:[eE][-+]?[0-9]+)?", s)
+                                query_embedding = [float(n) for n in nums]
+                        elif isinstance(raw, str):
+                            # Try to parse a Python list string like '[0.01, 0.23, ...]'
+                            try:
+                                query_embedding = [float(x) for x in ast.literal_eval(raw)]
+                            except Exception:
+                                nums = re.findall(r"[-+]?[0-9]*\.?[0-9]+(?:[eE][-+]?[0-9]+)?", raw)
+                                query_embedding = [float(n) for n in nums]
+                        else:
+                            # Fallback: try to coerce to list
+                            try:
+                                query_embedding = [float(x) for x in list(raw)]
+                            except Exception:
+                                logger.debug("Unable to coerce stored embedding for %s; will re-embed: %s", cust_id, type(raw))
+                                query_embedding = None
+                except Exception as e:
+                    logger.debug("Could not fetch embedding for %s: %s", cust_id, e)
+
+            # Fall back to generating an embedding for the query text
+            if query_embedding is None:
+                query_embedding = self.get_embedding(query)
+
             if not query_embedding:
                 return []
-            
+
             # Convert to PostgreSQL array format
-            query_embedding_array = "[" + ",".join(map(str, query_embedding)) + "]"
-            
-            cursor.execute("""
-                SELECT 
-                    customer_id,
-                    purchase_history,
-                    preferences,
-                    metadata,
-                    1 - (embedding <=> %s::vector) as similarity
+            # Ensure we have a plain list of floats; format with full precision
+            query_embedding = [float(x) for x in query_embedding]
+            query_embedding_array = "[" + ",".join(format(float(x), '.18g') for x in query_embedding) + "]"
+
+            # Inspect available columns in customer_embeddings to avoid missing column errors
+            cursor.execute("SELECT column_name FROM information_schema.columns WHERE table_name = %s", ('customer_embeddings',))
+            available_cols = [r[0] for r in cursor.fetchall()]
+
+            # Ensure embedding column exists
+            if 'embedding' not in available_cols:
+                logger.error("customer_embeddings table does not have an 'embedding' column")
+                return []
+
+            select_cols = []
+            # Prefer to include these if present
+            for c in ('customer_id', 'purchase_history', 'preferences', 'metadata'):
+                if c in available_cols:
+                    select_cols.append(c)
+
+            # Build select clause dynamically and append similarity
+            select_clause = ', '.join(select_cols) if select_cols else ''
+            if select_clause:
+                select_clause = select_clause + ', '
+            # Use GREATEST to clip negative similarities to zero (distance may be > 1)
+            select_clause = select_clause + "GREATEST(0, 1 - (embedding <=> %s::vector)) as similarity"
+
+            # Build WHERE clause for optional dataset scoping
+            where_clause = ""
+            params = []
+            if dataset_id and 'dataset_id' in available_cols:
+                where_clause = "WHERE dataset_id = %s"
+                params.append(dataset_id)
+
+            sql = f"""
+                SELECT {select_clause}
                 FROM customer_embeddings
+                {where_clause}
                 ORDER BY embedding <=> %s::vector
                 LIMIT %s
-            """, (query_embedding_array, query_embedding_array, limit))
-            
+            """
+
+            # Build exec_params so that the first vector placeholder (in SELECT similarity)
+            # receives the query vector, then dataset_id (if present), then the ORDER BY vector and limit.
+            # SQL parameter order is:
+            #   1) SELECT similarity vector placeholder
+            #   2) WHERE dataset_id (optional)
+            #   3) ORDER BY vector placeholder
+            #   4) LIMIT
+            exec_params = [query_embedding_array] + params + [query_embedding_array, limit]
+            cursor.execute(sql, exec_params)
+
+            rows = cursor.fetchall()
             results = []
-            for row in cursor.fetchall():
-                results.append({
-                    'customer_id': row[0],
-                    'purchase_history': row[1],
-                    'preferences': row[2],
-                    'metadata': row[3],
-                    'similarity': float(row[4])
-                })
-            
+            for row in rows:
+                item = {}
+                # Map returned columns to dict keys; replace None with 'N/A' for readability
+                for idx, col in enumerate(select_cols):
+                    item[col] = row[idx] if row[idx] is not None else 'N/A'
+                # similarity is always last and is in [0,1]
+                sim = float(row[len(select_cols)])
+                # convert to percentage for display
+                item['similarity'] = round(sim * 100.0, 2)
+                results.append(item)
+
+            # Results are already ordered by distance (most similar first). Ensure sorting by similarity desc
+            results.sort(key=lambda x: x.get('similarity', 0), reverse=True)
             return results
             
         except Exception as e:
