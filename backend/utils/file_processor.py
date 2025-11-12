@@ -71,7 +71,7 @@ class FileProcessor:
             df = pd.read_csv(temp_file_path)
             logger.info(f"✅ CSV loaded: {len(df)} rows, {len(df.columns)} columns")
 
-            # Auto-detect and convert date columns
+             # convert date columns (For Anomaly Agent)
             df = self.convert_date_columns(df)
             logger.info(f"✅ Date columns processed")
             
