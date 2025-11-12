@@ -44,3 +44,5 @@ Thumbs.db
 
 # Ignore large files
 /data/
+
+.env
