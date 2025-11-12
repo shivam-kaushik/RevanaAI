@@ -1,6 +1,7 @@
 import sys
 import os
 import logging
+import base64
 from openai import OpenAI
 
 # Fix Python path
@@ -71,10 +72,10 @@ def build_schema_text(engine, active_table: str) -> str:
     lines.append(f"""
     Example monthly aggregation using ACTIVE_TABLE:
     SELECT
-    date_trunc('month', to_timestamp(date, 'MM/DD/YYYY HH24:MI'))::date AS ds,
+    date_trunc('month', to_timestamp(date, 'MM-DD-YYYY HH24:MI:SS'))::date AS ds,
     COALESCE(SUM(line_total), 0) AS y
     FROM {active_table}
-    WHERE to_timestamp(date, 'MM/DD/YYYY HH24:MI')::date <= CURRENT_DATE
+    WHERE to_timestamp(date, 'MM-DD-YYYY HH24:MI:SS')::date <= CURRENT_DATE
     GROUP BY 1
     ORDER BY 1;
     """)
@@ -111,7 +112,13 @@ FC_LLM = ChatOpenAI(
 
 # Ensure a place for charts
 FORECAST_STATIC_DIR = os.path.join(parent_dir, "frontend", "static", "forecast")
+print("DEBUG: FORECAST STATIC DIR", FORECAST_STATIC_DIR)
 os.makedirs(FORECAST_STATIC_DIR, exist_ok=True)
+
+def _png_to_base64(path):
+    with open(path, "rb") as f:
+        return "data:image/png;base64," + base64.b64encode(f.read()).decode("utf-8")
+
 
 # Config + instance
 fc_cfg = ForecastAgentConfig(
@@ -554,11 +561,14 @@ async def execute_agent_plan(plan, has_database_tables):
     if isinstance(forecasts, dict):
         combined = forecasts.get("plots", {}).get("combined_png")
         if combined:
-            if combined.startswith("frontend/"):
-                combined = combined.split("frontend/", 1)[1]  # -> 'static/...'
-            if not combined.startswith("static/"):
-                combined = combined.lstrip("/")
-            charts["main"] = f"/{combined}"
+            # normalize path to real file
+            fs_path = combined
+            if fs_path.startswith("static/"):
+                fs_path = os.path.join(parent_dir, "frontend", fs_path)
+            elif fs_path.startswith("/static/"):
+                fs_path = os.path.join(parent_dir, "frontend", fs_path[1:])
+
+            charts['forecast_combined'] = _png_to_base64(fs_path)
     if data_results is not None:
         data_payload = {
             "sql_data": data_results.to_dict("records"),
@@ -663,6 +673,7 @@ def build_final_response(insights, forecasts, anomalies, data_results, user_quer
 @app.get("/static/{file_path:path}")
 async def serve_static(file_path: str):
     static_path = os.path.join(parent_dir, 'frontend', 'static', file_path)
+    print("INFO: static path: ", static_path)
     if os.path.exists(static_path):
         return FileResponse(static_path)
     raise HTTPException(status_code=404, detail="File not found")
