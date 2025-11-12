@@ -70,6 +70,10 @@ class FileProcessor:
             # Read CSV file
             df = pd.read_csv(temp_file_path)
             logger.info(f"✅ CSV loaded: {len(df)} rows, {len(df.columns)} columns")
+
+            # Auto-detect and convert date columns
+            df = self.convert_date_columns(df)
+            logger.info(f"✅ Date columns processed")
             
             # Generate table name
             table_name = self.generate_table_name(filename)

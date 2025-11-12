@@ -330,10 +330,19 @@ async def analyze_data(request: ChatRequest):
         logger.info(f"Data analysis request: {request.message}")
 
         if not dataset_manager.has_active_dataset():
-            return {"success": False, "error": "No active dataset found. Please upload a CSV file first or select an existing dataset."}
+            return {
+                "success": False,
+                "error": "No active dataset found. Please upload a CSV file first or select an existing dataset."
+            }
+        
+        # Get active dataset info
+        active_dataset = dataset_manager.get_active_dataset()        
 
-        active_dataset = dataset_manager.get_active_dataset()
-
+        # Check if this is an anomaly detection query
+        anomaly_keywords = ["anomal", "outlier", "unusual", "drop", "spike", "irregular", "abnormal", "unexpected"]
+        is_anomaly_query = any(keyword in request.message.lower() for keyword in anomaly_keywords)
+        
+        # Step 1: Generate SQL query
         sql_query, sql_error = sql_agent.generate_sql(request.message)
         if not sql_query:
             return {"success": False, "error": f"Could not generate SQL query: {sql_error}"}
