@@ -19,9 +19,11 @@ class SQLAgent:
             logger.info(f"🔍 SQL_AGENT: Generating SQL for: {user_query}")
             
             # Get active dataset from DB if not provided
+            # FORCE REFRESH to ensure we have the latest active dataset
             if not active_table:
-                active_info = self.dataset_manager.get_active_dataset()
+                active_info = self.dataset_manager.get_active_dataset(force_refresh=True)
                 active_table = active_info['table_name'] if isinstance(active_info, dict) and active_info.get('table_name') else None
+                logger.info(f"📊 SQL_AGENT: Using active table: {active_table}")
             
             if not active_table:
                 return None, "No active dataset. Please upload a CSV file first."

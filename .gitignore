@@ -6,7 +6,8 @@ __pycache__/
 *.egg-info/
 dist/
 build/
-
+.pyc
+.bin
 
 # Virtual environments and environment files
 venv/
@@ -43,3 +44,5 @@ Thumbs.db
 
 # Ignore large files
 /data/
+
+.env
