@@ -349,12 +349,7 @@ async def analyze_data(request: ChatRequest):
             }
         
         # Get active dataset info
-        active_dataset = dataset_manager.get_active_dataset()
-
-          # Check if this is an anomaly detection query
-        anomaly_keywords = ["anomal", "outlier", "unusual", "drop", "spike", "irregular", "abnormal", "unexpected"]
-        is_anomaly_query = any(keyword in request.message.lower() for keyword in anomaly_keywords)
-        
+        active_dataset = dataset_manager.get_active_dataset()        
         
         # Step 1: Generate SQL query
         sql_query, sql_error = sql_agent.generate_sql(request.message)
