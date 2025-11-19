@@ -587,7 +587,9 @@
             if (!message || sendBtn.disabled) return;
 
             // Simple heuristic to detect query types
-            const dataKeywords = ['show', 'analyze', 'trend', 'chart', 'graph', 'sales', 'revenue', 'total', 'average', 'sum', 'count', 'by month', 'by category', 'compare', 'distribution', 'top', 'highest', 'lowest'];
+            const dataKeywords = ['show', 'analyze', 'trend', 'chart', 'graph', 'sales', 'revenue', 
+                                'total', 'average', 'sum', 'count', 'by month', 'by category', 
+                                'compare', 'distribution', 'top', 'highest', 'lowest'];
             const isDataQuery = dataKeywords.some(keyword => message.toLowerCase().includes(keyword));
             const isSemantic = isSemanticQuery(message);
             
@@ -940,6 +942,7 @@
         function formatMessageContent(content) {
             // Convert markdown-style formatting to HTML
             return content
+                .replace(/!\[(.*?)\]\((.*?)\)/g, '<br><img src="$2" alt="$1" class="chart-image"><br>')
                 .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
                 .replace(/\*(.*?)\*/g, '<em>$1</em>')
                 .replace(/`(.*?)`/g, '<code>$1</code>')

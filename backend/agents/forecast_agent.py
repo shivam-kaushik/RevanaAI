@@ -5,7 +5,7 @@ import pandas as pd
 from dataclasses import dataclass
 from typing import Dict, Any
 from sqlalchemy import create_engine, text
-
+import base64 
 from backend.tools import SQLTool, NL2SQLTool, ProphetTool, VizTool, SummaryTool
 
 
@@ -59,12 +59,10 @@ class ForecastAgent:
 
         # 5) Plots
         #tag = self._slug(nl_query)[:40]
-        #hist_path = self.viz.plot_historical(df, tag)
         #fcst_path = self.viz.plot_forecast(fcst, tag)
         # backend/agents/forecast_agent.py (inside run, after fcst is computed)
         tag = self._slug(nl_query)[:40]
-        #combined_png = self.viz.plot_combined(df, fcst, tag)
-        hist_path = self.viz.plot_historical(df, tag, title="Historical Data", ylabel="Total Sales")
+        combined_png = self.viz.plot_combined(df, fcst, tag)
         future_path = self.viz.plot_future_only(
             df,
             fcst[["ds","yhat","yhat_lower","yhat_upper"]].copy(),
@@ -80,13 +78,19 @@ class ForecastAgent:
             title="Total Sales Forecast (Monthly)",
             ylabel="Total Sales"
         )
+        # Convert the saved PNGs to base64 so frontend can use them directly
+        #hist_b64 = self._png_to_base64(hist_path)
+        combined_b64 = self._png_to_base64(combined_path)
+        future_b64 = self._png_to_base64(future_path)
+
         print("DEBUG combined_path =", combined_path)
         # 6) Summary
         text_summary = self.summary.run(nl_query, fcst, horizon)
 
         markdown = (
             f"🔮 Forecast ({horizon} months)\n"
-            f"![Forecast](/{combined_path})\n\n"
+            f"![Forecast]({combined_b64})\n\n"
+            f"![Forecast]({future_b64})\n\n"
             f"**Summary:** {text_summary}\n"
         )
 
@@ -96,8 +100,9 @@ class ForecastAgent:
             "sql": sql,
             "horizon": horizon,
             "plots": {
-                "historical_png": hist_path,
-                "combined_png": combined_path,  
+                #"combined_png": combined_path,
+                "combined_base64": combined_b64,
+                "future_base64": future_b64,  
             },
             "markdown": markdown,
             "df_head": df.head(10).to_dict("records"),
@@ -135,3 +140,16 @@ class ForecastAgent:
         out = out.dropna(subset=["ds", "y"]).sort_values("ds")
         out["ds"] = out["ds"].values.astype("datetime64[M]")  # monthly
         return out[["ds", "y"]]
+    
+    def _png_to_base64(self, web_path: str) -> str:
+        """
+        Convert a PNG file (referenced by the web path like 'static/forecast/xxx.png')
+        into a data:image/png;base64,... string.
+        """
+        # web_path looks like: 'static/forecast/combined_predict-next-6-months.png'
+        filename = os.path.basename(web_path)
+        fs_path = os.path.join(self.cfg.output_dir, filename)  # e.g. frontend/static/forecast/...
+
+        with open(fs_path, "rb") as f:
+            encoded = base64.b64encode(f.read()).decode("utf-8")
+        return "data:image/png;base64," + encoded

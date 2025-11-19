@@ -61,19 +61,6 @@ class VizTool:
         plt.savefig(save_path, dpi=dpi)
         plt.close(fig)
         return self._web_path(save_path)
-        
-    def plot_historical(self, df, tag, title="Historical Data", ylabel="Value"):
-        fig, ax = plt.subplots(figsize=(10, 6))
-        ax.plot(df["ds"], df["y"], label="Actual", linewidth=2)
-        ax.set_title(title)
-        ax.set_xlabel("Date")
-        ax.set_ylabel(ylabel)
-        ax.legend()
-        fig.tight_layout()
-        path = os.path.join(self.output_dir, f"hist_{tag}.png")
-        fig.savefig(path, dpi=200)
-        plt.close(fig)
-        return self._web_path(path)
 
     def plot_combined(self, hist_df, fcst_df, tag,
                       title="Total Sales Forecast (Monthly)",

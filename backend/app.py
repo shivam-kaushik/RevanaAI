@@ -115,9 +115,12 @@ FORECAST_STATIC_DIR = os.path.join(parent_dir, "frontend", "static", "forecast")
 print("DEBUG: FORECAST STATIC DIR", FORECAST_STATIC_DIR)
 os.makedirs(FORECAST_STATIC_DIR, exist_ok=True)
 
-def _png_to_base64(path):
+def _png_to_base64(path: str) -> str:
+    """Return raw base64 string (no data: prefix)."""
     with open(path, "rb") as f:
-        return "data:image/png;base64," + base64.b64encode(f.read()).decode("utf-8")
+        return base64.b64encode(f.read()).decode("utf-8")
+
+
 
 
 # Config + instance
@@ -145,6 +148,8 @@ class ChatResponse(BaseModel):
     needs_clarification: bool = False
     clarification_question: str = ""
     has_dataset: bool = False
+    charts: dict | None = None  # --> charts --> forecast_combined
+
 
 @app.get("/", response_class=HTMLResponse)
 async def root():
@@ -446,6 +451,7 @@ async def chat_endpoint(request: ChatRequest):
             logger.info(f"📊 Executing with active dataset: {active_dataset_fresh['table_name'] if active_dataset_fresh else 'None'}")
 
             results = await execute_agent_plan(plan, has_active_dataset)
+            charts = results.get("charts")
             response_data = results.get('data', {}) or {}
             agents_used = plan.get('required_agents', []) or ["SQL_AGENT", "INSIGHT_AGENT"]
         else:
@@ -460,7 +466,8 @@ async def chat_endpoint(request: ChatRequest):
             agents_used=agents_used,
             execution_plan=plan.get('execution_plan', []),
             needs_clarification=False,
-            has_dataset=has_active_dataset
+            has_dataset=has_active_dataset,
+            charts=charts 
         )
     except Exception as e:
         logger.error(f"Error in chat endpoint: {e}")
@@ -485,6 +492,7 @@ async def chat_endpoint(request: ChatRequest):
                 needs_clarification=False,
                 has_dataset=dataset_manager.has_active_dataset()
             )
+
 
 async def execute_agent_plan(plan, has_database_tables):
     """Execute the agent plan for data analysis"""
@@ -545,8 +553,7 @@ async def execute_agent_plan(plan, has_database_tables):
                 forecast_agent.refresh_schema(new_schema_text)
 
                 # now run the forecast
-                fc_result = forecast_agent.run(user_query)
-                forecasts = fc_result
+                forecasts = forecast_agent.run(user_query)
             except Exception as e:
                 logger.error(f"Forecast agent error: {e}")
                 return {'final_response': f"❌ Forecast error: {str(e)}"}
@@ -557,18 +564,25 @@ async def execute_agent_plan(plan, has_database_tables):
 
     final_response = build_final_response(insights, forecasts, anomalies, data_results, user_query)
     # ----------------------------------------------------------------
+    
     charts = {}
     if isinstance(forecasts, dict):
-        combined = forecasts.get("plots", {}).get("combined_png")
-        if combined:
-            # normalize path to real file
-            fs_path = combined
-            if fs_path.startswith("static/"):
-                fs_path = os.path.join(parent_dir, "frontend", fs_path)
-            elif fs_path.startswith("/static/"):
-                fs_path = os.path.join(parent_dir, "frontend", fs_path[1:])
-
-            charts['forecast_combined'] = _png_to_base64(fs_path)
+        plots = forecasts.get("plots", {}) or {}
+        
+        # 1) Prefer base64 from the agent (no need to hit disk)
+        combined_b64 = plots.get("combined_base64")
+        if combined_b64:
+            charts["forecast_combined"] = combined_b64
+        else:
+            # 2) Fallback: use PNG path + _png_to_base64 (old behavior)
+            combined = plots.get("combined_png")
+            if combined:
+                fs_path = combined
+                if fs_path.startswith("static/"):
+                    fs_path = os.path.join(parent_dir, "frontend", fs_path)
+                elif fs_path.startswith("/static/"):
+                    fs_path = os.path.join(parent_dir, "frontend", fs_path[1:])
+                charts["forecast_combined"] = _png_to_base64(fs_path)
     if data_results is not None:
         data_payload = {
             "sql_data": data_results.to_dict("records"),
@@ -578,6 +592,7 @@ async def execute_agent_plan(plan, has_database_tables):
     else:
         data_payload = {"forecasts": forecasts} if forecasts else None
         print("Debug: data payload:", data_payload)
+
     return {
         "final_response": final_response,
         "data": data_payload,
@@ -642,6 +657,7 @@ def build_final_response(insights, forecasts, anomalies, data_results, user_quer
         md = forecasts.get("markdown")
         if md:
             response_parts.append(md)
+            print("Debug: appended markdown forecasts", md)
         else:
             response_parts.append(
                 "🔮 **Forecasts:**\n" + "\n".join([f"- {k}: {v}" for k, v in forecasts.items()])
