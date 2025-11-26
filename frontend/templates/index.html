@@ -297,6 +297,7 @@
                 border-bottom: 1px solid #e9ecef;
             }
         }
+
         .dataset-management {
             background: #e9ecef;
             padding: 15px;
@@ -333,7 +334,45 @@
             border-left-color: #28a745;
             background: #d4edda;
         }
-        
+
+        /* ---------- Feedback widget styles ---------- */
+        .feedback-widget {
+            margin-top: 10px;
+            padding-top: 8px;
+            border-top: 1px dashed #e0e0e0;
+            font-size: 0.9em;
+            color: #444;
+        }
+
+        .feedback-title {
+            margin-bottom: 4px;
+        }
+
+        .feedback-stars span {
+            cursor: pointer;
+            font-size: 1.3em;
+            color: #ccc;
+            margin-right: 3px;
+            transition: color 0.15s ease;
+        }
+
+        .feedback-stars span.selected {
+            color: #f5b301;
+        }
+
+        .feedback-status {
+            margin-top: 4px;
+            font-size: 0.8em;
+        }
+
+        .feedback-status.success {
+            color: #28a745;
+        }
+
+        .feedback-status.error {
+            color: #dc3545;
+        }
+        /* -------------------------------------------- */
     </style>
 </head>
 <body>
@@ -369,7 +408,7 @@
                 </div>
             </div>
 
-            <!-- Replace the existing dataset-info div with this: -->
+            <!-- Dataset Management -->
             <div class="dataset-management" id="datasetManagement">
                 <h4>📊 Dataset Management</h4>
                 
@@ -428,12 +467,25 @@
         let currentDataset = null;
         let isUploading = false;
 
-        // Initialize
         document.addEventListener('DOMContentLoaded', function() {
             checkHealth();
             setupEventListeners();
             loadDatasets();
+
+            const setActiveBtn = document.getElementById('setActiveBtn');
+            const datasetSelect = document.getElementById('datasetSelect');
+            
+            if (setActiveBtn) {
+                setActiveBtn.addEventListener('click', function() {
+                    const selectedDataset = datasetSelect.value;
+                    if (selectedDataset) {
+                        setActiveDataset(selectedDataset);
+                    }
+                });
+            }
         });
+
+        // ---------- Setup & Upload ----------
 
         function setupEventListeners() {
             // File input change
@@ -482,7 +534,6 @@
                     showStatus('Please select a CSV file.', 'error');
                     return;
                 }
-                
                 uploadFile(file);
             }
         }
@@ -508,19 +559,13 @@
                 if (result.success) {
                     showStatus(result.message, 'success');
                     
-                    // Update the dataset info display
                     if (result.dataset_info) {
                         currentDataset = result.dataset_info;
-                        updateDatasetInfo(currentDataset);
+                        updateDatasetInfo(result.dataset_info);
                     }
                     
-                    // Reload the datasets list
                     await loadDatasets();
-                    
-                    // Enable chat
                     enableChat();
-                    
-                    // Refresh system status
                     await checkHealth();
                 } else {
                     showStatus(result.message, 'error');
@@ -543,7 +588,6 @@
 
         function showStatus(message, type = 'info') {
             if (!uploadStatus) return;
-            
             uploadStatus.innerHTML = `
                 <div class="status-${type}">
                     <strong>${type.toUpperCase()}:</strong> ${message}
@@ -551,10 +595,8 @@
             `;
         }
 
-        function updateDatasetInfo(result) {
+        function updateDatasetInfo(datasetInfoData) {
             if (!datasetInfo || !datasetDetails) return;
-            
-            const datasetInfoData = result.dataset_info || result;
             
             datasetInfo.style.display = 'block';
             datasetDetails.innerHTML = `
@@ -574,7 +616,12 @@
             }
         }
 
-        const semanticKeywords = ['similar', 'like', 'recommend', 'find products like', 'customers like', 'comparable', 'alternative', 'semantic', 'vector'];
+        // ---------- Semantic vs SQL routing ----------
+
+        const semanticKeywords = [
+            'similar', 'like', 'recommend', 'find products like', 'customers like',
+            'comparable', 'alternative', 'semantic', 'vector'
+        ];
 
         function isSemanticQuery(message) {
             return semanticKeywords.some(keyword => 
@@ -586,10 +633,11 @@
             const message = chatInput.value.trim();
             if (!message || sendBtn.disabled) return;
 
-            // Simple heuristic to detect query types
-            const dataKeywords = ['show', 'analyze', 'trend', 'chart', 'graph', 'sales', 'revenue', 
-                                'total', 'average', 'sum', 'count', 'by month', 'by category', 
-                                'compare', 'distribution', 'top', 'highest', 'lowest'];
+            const dataKeywords = [
+                'show', 'analyze', 'trend', 'chart', 'graph', 'sales', 'revenue',
+                'total', 'average', 'sum', 'count', 'by month', 'by category',
+                'compare', 'distribution', 'top', 'highest', 'lowest'
+            ];
             const isDataQuery = dataKeywords.some(keyword => message.toLowerCase().includes(keyword));
             const isSemantic = isSemanticQuery(message);
             
@@ -603,21 +651,17 @@
         }
 
         async function semanticSearch(message) {
-            // Add user message to chat
             addMessage(message, 'user');
             chatInput.value = '';
             chatInput.disabled = true;
             sendBtn.disabled = true;
 
-            // Show typing indicator
             const typingId = showTypingIndicator();
 
             try {
                 const response = await fetch('/semantic-search', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         message: message,
                         conversation_id: 'default'
@@ -625,8 +669,6 @@
                 });
 
                 const result = await response.json();
-
-                // Remove typing indicator
                 removeTypingIndicator(typingId);
 
                 if (result.success) {
@@ -646,7 +688,8 @@
             }
         }
 
-        // Dataset Management Functions
+        // ---------- Dataset Management ----------
+
         async function loadDatasets() {
             try {
                 const response = await fetch('/datasets');
@@ -668,7 +711,6 @@
             if (datasets.length > 0) {
                 datasetManagement.style.display = 'block';
                 
-                // Update active dataset
                 if (activeDataset) {
                     activeDatasetName.textContent = `${activeDataset.table_name} (${activeDataset.row_count} rows)`;
                     currentDataset = activeDataset;
@@ -677,7 +719,6 @@
                     activeDatasetName.textContent = 'None';
                 }
                 
-                // Update dataset dropdown
                 datasetSelect.innerHTML = '<option value="">Select a dataset...</option>';
                 datasets.forEach(dataset => {
                     const option = document.createElement('option');
@@ -697,19 +738,15 @@
             try {
                 const response = await fetch('/datasets/active', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        table_name: tableName
-                    })
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ table_name: tableName })
                 });
                 
                 const result = await response.json();
                 
                 if (result.success) {
                     showStatus(`Dataset '${tableName}' is now active`, 'success');
-                    await loadDatasets(); // Refresh the list
+                    await loadDatasets();
                 } else {
                     showStatus(`Failed to set active dataset: ${result.error}`, 'error');
                 }
@@ -719,26 +756,8 @@
             }
         }
 
-        // Update your existing functions
-        function updateDatasetInfo(result) {
-            if (!datasetInfo || !datasetDetails) return;
-            
-            const datasetInfoData = result.dataset_info || result;
-            
-            datasetInfo.style.display = 'block';
-            datasetDetails.innerHTML = `
-                <p><strong>Table:</strong> ${datasetInfoData.table_name || 'N/A'}</p>
-                <p><strong>Records:</strong> ${datasetInfoData.row_count || 0} rows</p>
-                <p><strong>Columns:</strong> ${datasetInfoData.column_count || 0}</p>
-                <p><strong>Database:</strong> ${datasetInfoData.database || 'PostgreSQL'}</p>
-                ${datasetInfoData.columns ? `<p><strong>Columns:</strong> ${datasetInfoData.columns.join(', ')}</p>` : ''}
-            `;
-            
-            // Load all datasets after upload
-            loadDatasets();
-        }
+        // ---------- Health Check ----------
 
-        // Update health check to load datasets
         async function checkHealth() {
             try {
                 const response = await fetch('/health');
@@ -756,7 +775,6 @@
                     statusMessage.innerHTML = statusHTML;
                 }
 
-                // Load datasets on health check
                 await loadDatasets();
 
             } catch (error) {
@@ -767,42 +785,24 @@
             }
         }
 
-        // Add event listeners
-        document.addEventListener('DOMContentLoaded', function() {
-            // Existing code...
-            
-            // Add dataset management event listeners
-            const setActiveBtn = document.getElementById('setActiveBtn');
-            const datasetSelect = document.getElementById('datasetSelect');
-            
-            if (setActiveBtn) {
-                setActiveBtn.addEventListener('click', function() {
-                    const selectedDataset = datasetSelect.value;
-                    if (selectedDataset) {
-                        setActiveDataset(selectedDataset);
-                    }
-                });
-            }
-        });
+        setInterval(checkHealth, 30000);
+
+        // ---------- Chat / Analyze ----------
 
         async function sendRegularMessage() {
             const message = chatInput.value.trim();
             
-            // Add user message to chat
             addMessage(message, 'user');
             chatInput.value = '';
             chatInput.disabled = true;
             sendBtn.disabled = true;
 
-            // Show typing indicator
             const typingId = showTypingIndicator();
 
             try {
                 const response = await fetch('/chat', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         message: message,
                         conversation_id: 'default'
@@ -810,11 +810,8 @@
                 });
 
                 const result = await response.json();
-
-                // Remove typing indicator
                 removeTypingIndicator(typingId);
 
-                // Add assistant response
                 addMessage(result.response, 'assistant', result);
 
             } catch (error) {
@@ -831,21 +828,17 @@
         async function analyzeData() {
             const message = chatInput.value.trim();
             
-            // Add user message to chat
             addMessage(message, 'user');
             chatInput.value = '';
             chatInput.disabled = true;
             sendBtn.disabled = true;
 
-            // Show typing indicator
             const typingId = showTypingIndicator();
 
             try {
                 const response = await fetch('/analyze', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         message: message,
                         conversation_id: 'default'
@@ -853,15 +846,11 @@
                 });
 
                 const result = await response.json();
-
-                // Remove typing indicator
                 removeTypingIndicator(typingId);
 
                 if (result.success) {
-                    // Add analysis response
-                    addMessage(result.response, 'assistant');
+                    addMessage(result.response, 'assistant', result);
                     
-                    // Display charts if available
                     if (result.charts && Object.keys(result.charts).length > 0) {
                         displayCharts(result.charts);
                     }
@@ -908,10 +897,13 @@
                 'trend': '📈 Trend Analysis',
                 'bar': '📊 Category Comparison',
                 'pie': '🥧 Distribution',
-                'distribution': '📋 Data Distribution'
+                'distribution': '📋 Data Distribution',
+                'forecast_combined': '🔮 Forecast'
             };
             return titles[chartType] || 'Chart';
         }
+
+        // ---------- Messaging helpers + FEEDBACK ----------
 
         function addMessage(content, sender, metadata = null) {
             if (!chatMessages) return;
@@ -920,11 +912,8 @@
             messageDiv.className = `message ${sender}-message`;
             
             let messageHTML = `<strong>${sender === 'user' ? '👤 You' : '🤖 Assistant'}</strong><br>`;
-            
-            // Format the message content
             messageHTML += formatMessageContent(content);
-            
-            // Add metadata if available
+
             if (metadata && sender === 'assistant') {
                 if (metadata.agents_used && metadata.agents_used.length > 0) {
                     messageHTML += `<br><small>Agents: ${metadata.agents_used.map(agent => `<span class="agent-tag">${agent}</span>`).join('')}</small>`;
@@ -936,11 +925,16 @@
             
             messageDiv.innerHTML = messageHTML;
             chatMessages.appendChild(messageDiv);
+
+            // If backend sent an interaction_id, render rating widget
+            if (sender === 'assistant' && metadata && metadata.interaction_id) {
+                renderFeedbackWidget(messageDiv, metadata.interaction_id);
+            }
+
             chatMessages.scrollTop = chatMessages.scrollHeight;
         }
 
         function formatMessageContent(content) {
-            // Convert markdown-style formatting to HTML
             return content
                 .replace(/!\[(.*?)\]\((.*?)\)/g, '<br><img src="$2" alt="$1" class="chart-image"><br>')
                 .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
@@ -976,46 +970,83 @@
             }
         }
 
-        async function checkHealth() {
+        // ----- Rating widget -----
+
+        function renderFeedbackWidget(messageDiv, interactionId) {
+            if (!interactionId) return;
+
+            const existing = messageDiv.querySelector('.feedback-widget');
+            if (existing) return;
+
+            const container = document.createElement('div');
+            container.className = 'feedback-widget';
+            container.innerHTML = `
+                <div class="feedback-title">How helpful was this answer?</div>
+                <div class="feedback-stars">
+                    <span data-rating="1">★</span>
+                    <span data-rating="2">★</span>
+                    <span data-rating="3">★</span>
+                    <span data-rating="4">★</span>
+                    <span data-rating="5">★</span>
+                </div>
+                <div class="feedback-status"></div>
+            `;
+
+            const stars = container.querySelectorAll('.feedback-stars span');
+            const statusEl = container.querySelector('.feedback-status');
+
+            stars.forEach(star => {
+                star.addEventListener('click', async () => {
+                    const rating = parseInt(star.dataset.rating, 10);
+                    await submitFeedback(interactionId, rating, container, statusEl);
+
+                    stars.forEach(s => s.classList.remove('selected'));
+                    for (let i = 0; i < rating; i++) {
+                        stars[i].classList.add('selected');
+                    }
+                });
+            });
+
+            messageDiv.appendChild(container);
+        }
+
+        async function submitFeedback(interactionId, rating, container, statusEl) {
+            if (!interactionId || !rating || !container) return;
+            if (container.dataset.submitted === 'true') return;
+
             try {
-                const response = await fetch('/health');
+                const response = await fetch('/feedback', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        interaction_id: interactionId,
+                        rating: rating,
+                        comment: null
+                    })
+                });
+
                 const result = await response.json();
-                
-                if (statusMessage) {
-                    let statusHTML = `<span style="color: #28a745;">✅ ${result.message}</span><br>`;
-                    statusHTML += `<small>Database: ${result.database || 'PostgreSQL'}</small><br>`;
-                    
-                    // Show table names if available
-                    if (result.tables && result.tables.length > 0) {
-                        statusHTML += `<br><small>Latest Table: ${result.tables[0]}</small>`;
+                if (result.success) {
+                    container.dataset.submitted = 'true';
+                    if (statusEl) {
+                        statusEl.textContent = 'Thanks for your feedback!';
+                        statusEl.className = 'feedback-status success';
                     }
-                    
-                    statusMessage.innerHTML = statusHTML;
-                }
-
-                // If we have tables but no current dataset, enable chat
-                if (result.table_count > 0 && !currentDataset) {
-                    enableChat();
-                    if (datasetInfo) {
-                        datasetInfo.style.display = 'block';
-                        datasetDetails.innerHTML = `
-                            <p>Using existing database tables</p>
-                            <p><strong>Total Tables:</strong> ${result.table_count}</p>
-                            <p><strong>Latest Table:</strong> ${result.tables ? result.tables[0] : 'N/A'}</p>
-                        `;
+                } else {
+                    if (statusEl) {
+                        statusEl.textContent = 'Could not save feedback.';
+                        statusEl.className = 'feedback-status error';
                     }
                 }
-
-            } catch (error) {
-                console.error('Health check failed:', error);
-                if (statusMessage) {
-                    statusMessage.innerHTML = `<span style="color: #dc3545;">❌ Service unavailable</span>`;
+            } catch (err) {
+                console.error('Feedback error:', err);
+                if (statusEl) {
+                    statusEl.textContent = 'Error sending feedback.';
+                    statusEl.className = 'feedback-status error';
                 }
             }
         }
 
-        // Periodically check health
-        setInterval(checkHealth, 30000); // Every 30 seconds
     </script>
 </body>
 </html>

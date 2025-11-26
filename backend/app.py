@@ -20,19 +20,21 @@ from pydantic import BaseModel
 from sqlalchemy import create_engine, text
 from langchain_openai import ChatOpenAI
 from backend.agents.forecast_agent import ForecastAgent, ForecastAgentConfig
-from sqlalchemy import text
 # ---------------------------------------------------
 
-# Import our agents and utilities (unchanged)
+# Import our agents and utilities
 from backend.agents.planner import PlannerAgent
 from backend.agents.sql_agent import SQLAgent
 from backend.agents.analysis_agent import AnalysisAgent
 from backend.agents.anomaly_agent import AnomalyAgent
+from backend.agents.vector_agent import VectorAgent
+from backend.agents.feedback_agent import FeedbackAgent  # <-- NEW
+
 from backend.utils.file_processor import FileProcessor
 from backend.utils.vector_db import vector_db
-from backend.config import Config
-from backend.agents.vector_agent import VectorAgent
 from backend.utils.dataset_manager import DatasetManager
+from backend.config import Config
+from backend.utils.database import db_manager  # used in several places
 
 # Logging
 logging.basicConfig(level=logging.INFO)
@@ -40,7 +42,7 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Agentic Sales Assistant", version="2.0.0")
 
-# CORS (unchanged)
+# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -49,7 +51,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ---------------- NEW: helper to build schema text ----------------
+# ---------------- helper to build schema text ----------------
 def build_schema_text(engine, active_table: str) -> str:
     with engine.connect() as conn:
         rows = conn.execute(text("""
@@ -68,12 +70,11 @@ def build_schema_text(engine, active_table: str) -> str:
     for t, cols in tables.items():
         lines.append(f"Table {t}:\n" + "\n".join(cols))
 
-    # Example tailored to your dataset (text date 'MM/DD/YYYY HH24:MI', metric line_total)
     lines.append(f"""
     Example monthly aggregation using ACTIVE_TABLE:
     SELECT
-    date_trunc('month', to_timestamp(date, 'MM-DD-YYYY HH24:MI:SS'))::date AS ds,
-    COALESCE(SUM(line_total), 0) AS y
+        date_trunc('month', to_timestamp(date, 'MM-DD-YYYY HH24:MI:SS'))::date AS ds,
+        COALESCE(SUM(line_total), 0) AS y
     FROM {active_table}
     WHERE to_timestamp(date, 'MM-DD-YYYY HH24:MI:SS')::date <= CURRENT_DATE
     GROUP BY 1
@@ -82,7 +83,7 @@ def build_schema_text(engine, active_table: str) -> str:
     return "\n\n".join(lines)
 # ------------------------------------------------------------------
 
-# Initialize components (unchanged except ForecastAgent wiring)
+# Initialize components
 planner = PlannerAgent()
 sql_agent = SQLAgent()
 analysis_agent = AnalysisAgent()
@@ -91,44 +92,38 @@ file_processor = FileProcessor()
 openai_client = OpenAI(api_key=Config.OPENAI_API_KEY)
 vector_agent = VectorAgent()
 dataset_manager = DatasetManager()
+feedback_agent = FeedbackAgent()  # <-- NEW
 
-# ---------------- NEW: ForecastAgent wiring ----------------
-# Build schema text once
+# ---------------- ForecastAgent wiring ----------------
 DATABASE_URL = os.getenv("DATABASE_URL", getattr(Config, "DATABASE_URL", None))
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL is not set (env or Config)")
 
 _engine = create_engine(DATABASE_URL, future=True)
 active = dataset_manager.get_active_dataset(force_refresh=True)
-active_table = active["table_name"] if active else "revana_online_retail_clean_..."  # fallback
+active_table = active["table_name"] if active else "revana_online_retail_clean_..."
 SCHEMA_TEXT = build_schema_text(_engine, active_table)
 
-# LLM used by the NL→SQL tool and the summary tool inside ForecastAgent
 FC_LLM = ChatOpenAI(
     model="gpt-4o-mini",
     temperature=0,
-    api_key=Config.OPENAI_API_KEY,  
+    api_key=Config.OPENAI_API_KEY,
 )
 
-# Ensure a place for charts
 FORECAST_STATIC_DIR = os.path.join(parent_dir, "frontend", "static", "forecast")
 print("DEBUG: FORECAST STATIC DIR", FORECAST_STATIC_DIR)
 os.makedirs(FORECAST_STATIC_DIR, exist_ok=True)
 
 def _png_to_base64(path: str) -> str:
-    """Return raw base64 string (no data: prefix)."""
     with open(path, "rb") as f:
         return base64.b64encode(f.read()).decode("utf-8")
 
 
-
-
-# Config + instance
 fc_cfg = ForecastAgentConfig(
     database_url=DATABASE_URL,
     schema_text=SCHEMA_TEXT,
     output_dir=FORECAST_STATIC_DIR,
-    default_horizon=6,  
+    default_horizon=6,
 )
 forecast_agent = ForecastAgent(cfg=fc_cfg, llm=FC_LLM)
 # ----------------------------------------------------------
@@ -148,12 +143,17 @@ class ChatResponse(BaseModel):
     needs_clarification: bool = False
     clarification_question: str = ""
     has_dataset: bool = False
-    charts: dict | None = None  # --> charts --> forecast_combined
+    charts: dict | None = None
+    interaction_id: int | None = None   # <-- NEW
+
+class FeedbackRequest(BaseModel):       # <-- NEW
+    interaction_id: int
+    rating: int
+    comment: str | None = None
 
 
 @app.get("/", response_class=HTMLResponse)
 async def root():
-    """Serve the main frontend"""
     try:
         frontend_path = os.path.join(parent_dir, 'frontend', 'templates', 'index.html')
         if os.path.exists(frontend_path):
@@ -179,7 +179,6 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint"""
     try:
         if not dataset_manager.has_active_dataset():
             dataset_manager.auto_set_latest_dataset()
@@ -206,7 +205,6 @@ async def health_check():
 
 @app.post("/semantic-search")
 async def semantic_search(request: ChatRequest):
-    """Handle semantic search queries using pgvector"""
     try:
         logger.info(f"Semantic search request: {request.message}")
         results = vector_agent.handle_semantic_query(request.message)
@@ -226,7 +224,6 @@ async def get_vector_stats():
 
 @app.post("/upload")
 async def upload_file(file: UploadFile = File(...)):
-    """Handle CSV file upload and automatically create database table"""
     try:
         logger.info(f"Processing file upload: {file.filename}")
         result = await file_processor.process_uploaded_file(file, file.filename)
@@ -306,7 +303,11 @@ async def set_active_dataset(request: dict):
         if success:
             active_dataset = dataset_manager.get_active_dataset(force_refresh=True)
             logger.info(f"✅ Dataset switch successful: {active_dataset['table_name']}")
-            return {"success": True, "message": f"Dataset '{table_name}' is now active", "active_dataset": active_dataset}
+            return {
+                "success": True,
+                "message": f"Dataset '{table_name}' is now active",
+                "active_dataset": active_dataset
+            }
         else:
             return {"success": False, "error": f"Could not set '{table_name}' as active dataset"}
     except Exception as e:
@@ -337,7 +338,10 @@ async def get_table_info(table_name: str):
 
 @app.post("/analyze")
 async def analyze_data(request: ChatRequest):
-    """Analyze data with SQL + insight agent (unchanged)"""
+    """
+    Analyze data with SQL + insight agent.
+    Now also logs interaction + returns interaction_id for feedback.
+    """
     try:
         logger.info(f"Data analysis request: {request.message}")
 
@@ -346,20 +350,13 @@ async def analyze_data(request: ChatRequest):
                 "success": False,
                 "error": "No active dataset found. Please upload a CSV file first or select an existing dataset."
             }
-        
-        # Get active dataset info
-        active_dataset = dataset_manager.get_active_dataset()        
 
-        # Check if this is an anomaly detection query
-        anomaly_keywords = ["anomal", "outlier", "unusual", "drop", "spike", "irregular", "abnormal", "unexpected"]
-        is_anomaly_query = any(keyword in request.message.lower() for keyword in anomaly_keywords)
-        
-        # Step 1: Generate SQL query
+        active_dataset = dataset_manager.get_active_dataset()
+
         sql_query, sql_error = sql_agent.generate_sql(request.message)
         if not sql_query:
             return {"success": False, "error": f"Could not generate SQL query: {sql_error}"}
 
-        from backend.utils.database import db_manager
         try:
             data_rows = db_manager.execute_query_dict(sql_query)
             if not data_rows:
@@ -372,7 +369,10 @@ async def analyze_data(request: ChatRequest):
 
         charts = {}
         user_query_lower = request.message.lower()
-        visualization_keywords = ['chart', 'graph', 'plot', 'visualize', 'show me', 'display', 'bar', 'pie', 'line', 'histogram']
+        visualization_keywords = [
+            'chart', 'graph', 'plot', 'visualize', 'show me', 'display',
+            'bar', 'pie', 'line', 'histogram'
+        ]
         if any(keyword in user_query_lower for keyword in visualization_keywords):
             chart_image, chart_error = analysis_agent.create_visualization(request.message, data_rows)
             if chart_image:
@@ -386,9 +386,31 @@ async def analyze_data(request: ChatRequest):
 
         if data_rows:
             sample_data = _format_data_table(data_rows[:5])
-            response_text += f"**Sample Data:**\n```\n{sample_data}\n```\n"
+            response_text += f"**Sample Data:**\n```\n{sample_data}\n```"
 
-        return {"success": True, "response": response_text, "data": data_rows, "charts": charts, "sql_query": sql_query}
+        # ------ NEW: log interaction for feedback ------
+        try:
+            interaction_id = feedback_agent.log_interaction(
+                session_id=request.conversation_id,
+                user_query=request.message,
+                agent_name="SQL+INSIGHT",
+                dataset_table=active_dataset.get("table_name") if active_dataset else None,
+                response_summary=response_text[:500],
+                chart_reference="has_chart" if charts else None,
+            )
+        except Exception as log_err:
+            logger.error(f"Feedback logging failed (analyze): {log_err}")
+            interaction_id = None
+        # ------------------------------------------------
+
+        return {
+            "success": True,
+            "response": response_text,
+            "data": data_rows,
+            "charts": charts,
+            "sql_query": sql_query,
+            "interaction_id": interaction_id,   # <-- NEW
+        }
     except Exception as e:
         logger.error(f"Data analysis error: {e}")
         return {"success": False, "error": f"Analysis failed: {str(e)}"}
@@ -400,16 +422,22 @@ async def execute_query(request: dict):
         if not query:
             return {"success": False, "error": "Query is required"}
 
-        from backend.utils.database import db_manager
         result = db_manager.execute_query(query)
-        return {"success": True, "data": result.to_dict('records'), "row_count": len(result), "columns": list(result.columns) if not result.empty else []}
+        return {
+            "success": True,
+            "data": result.to_dict('records'),
+            "row_count": len(result),
+            "columns": list(result.columns) if not result.empty else []
+        }
     except Exception as e:
         logger.error(f"Query execution error: {e}")
         return {"success": False, "error": str(e)}
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest):
-    """Main chat endpoint with existing planner flow (unchanged)."""
+    """
+    Main chat endpoint with planner flow + feedback logging.
+    """
     try:
         logger.info(f"Processing query: {request.message}")
 
@@ -441,10 +469,14 @@ async def chat_endpoint(request: ChatRequest):
                 clarification_question=plan.get('clarification_question', 'Could you provide more details?'),
                 agents_used=["PLANNER"],
                 execution_plan=plan.get('execution_plan', []),
-                has_dataset=has_active_dataset
+                has_dataset=has_active_dataset,
+                interaction_id=None,
             )
 
         is_data_query = plan.get('is_data_query', False) and has_active_dataset
+
+        charts = None
+        interaction_id = None
 
         if is_data_query:
             active_dataset_fresh = dataset_manager.get_active_dataset(force_refresh=True)
@@ -454,11 +486,42 @@ async def chat_endpoint(request: ChatRequest):
             charts = results.get("charts")
             response_data = results.get('data', {}) or {}
             agents_used = plan.get('required_agents', []) or ["SQL_AGENT", "INSIGHT_AGENT"]
+            final_text = results['final_response']
+
+            # --------- NEW: log interaction ----------
+            try:
+                interaction_id = feedback_agent.log_interaction(
+                    session_id=request.conversation_id,
+                    user_query=request.message,
+                    agent_name="+".join(agents_used),
+                    dataset_table=active_dataset_fresh.get("table_name") if active_dataset_fresh else None,
+                    response_summary=final_text[:500],
+                    chart_reference="has_chart" if charts else None,
+                )
+            except Exception as log_err:
+                logger.error(f"Feedback logging failed (chat data): {log_err}")
+                interaction_id = None
+            # -----------------------------------------
         else:
             chat_response = await get_chatgpt_response(request.message, has_active_dataset)
             results = {'final_response': chat_response}
             response_data = {}
             agents_used = ["CHATGPT"]
+            final_text = chat_response
+
+            # log conversational interaction as well
+            try:
+                interaction_id = feedback_agent.log_interaction(
+                    session_id=request.conversation_id,
+                    user_query=request.message,
+                    agent_name="CHATGPT",
+                    dataset_table=active_dataset_info.get("table_name") if active_dataset_info else None,
+                    response_summary=final_text[:500],
+                    chart_reference=None,
+                )
+            except Exception as log_err:
+                logger.error(f"Feedback logging failed (chat conv): {log_err}")
+                interaction_id = None
 
         return ChatResponse(
             response=results['final_response'],
@@ -467,7 +530,8 @@ async def chat_endpoint(request: ChatRequest):
             execution_plan=plan.get('execution_plan', []),
             needs_clarification=False,
             has_dataset=has_active_dataset,
-            charts=charts 
+            charts=charts,
+            interaction_id=interaction_id,
         )
     except Exception as e:
         logger.error(f"Error in chat endpoint: {e}")
@@ -480,7 +544,8 @@ async def chat_endpoint(request: ChatRequest):
                 agents_used=["CHATGPT"],
                 execution_plan=[],
                 needs_clarification=False,
-                has_dataset=has_active_dataset
+                has_dataset=has_active_dataset,
+                interaction_id=None,
             )
         except Exception as fallback_error:
             logger.error(f"Fallback also failed: {fallback_error}")
@@ -490,12 +555,12 @@ async def chat_endpoint(request: ChatRequest):
                 agents_used=[],
                 execution_plan=[],
                 needs_clarification=False,
-                has_dataset=dataset_manager.has_active_dataset()
+                has_dataset=dataset_manager.has_active_dataset(),
+                interaction_id=None,
             )
 
-
 async def execute_agent_plan(plan, has_database_tables):
-    """Execute the agent plan for data analysis"""
+    # ... (UNCHANGED BODY EXCEPT END OF FUNCTION) ...
     user_query = plan['user_query']
     data_results = None
     insights = ""
@@ -524,7 +589,6 @@ async def execute_agent_plan(plan, has_database_tables):
             sql_query, error = sql_agent.generate_sql(user_query)
             if sql_query:
                 try:
-                    from backend.utils.database import db_manager
                     data_results = db_manager.execute_query(sql_query)
                     logger.info(f"✅ SQL query executed successfully: {len(data_results)} rows returned")
                 except Exception as e:
@@ -536,45 +600,33 @@ async def execute_agent_plan(plan, has_database_tables):
         elif agent_name == "INSIGHT_AGENT" and data_results is not None:
             insights = analysis_agent.generate_insights(user_query, data_results)
 
-        # ---- CHANGED: Forecast no longer depends on data_results ----
         elif agent_name == "FORECAST_AGENT":
-            # 🔮 Forecast agent is independent: NL→SQL→fetch→Prophet→viz→summary
             try:
-                # make sure we use the CURRENT active dataset
                 active_now = dataset_manager.get_active_dataset(force_refresh=True)
                 table_now = active_now["table_name"] if active_now else None
                 if not table_now:
                     return {'final_response': "❌ No active dataset is set."}
 
-                # rebuild schema_text for this table (re-use your existing helper)
                 new_schema_text = build_schema_text(_engine, table_now)
-
-                # refresh the forecast agent's prompt context
                 forecast_agent.refresh_schema(new_schema_text)
-
-                # now run the forecast
                 forecasts = forecast_agent.run(user_query)
             except Exception as e:
                 logger.error(f"Forecast agent error: {e}")
                 return {'final_response': f"❌ Forecast error: {str(e)}"}
-        # -------------------------------------------------------------
 
         elif agent_name == "ANOMALY_AGENT" and data_results is not None:
             anomalies = anomaly_agent.detect_anomalies(data_results)
 
     final_response = build_final_response(insights, forecasts, anomalies, data_results, user_query)
-    # ----------------------------------------------------------------
-    
+
     charts = {}
     if isinstance(forecasts, dict):
         plots = forecasts.get("plots", {}) or {}
-        
-        # 1) Prefer base64 from the agent (no need to hit disk)
+
         combined_b64 = plots.get("combined_base64")
         if combined_b64:
             charts["forecast_combined"] = combined_b64
         else:
-            # 2) Fallback: use PNG path + _png_to_base64 (old behavior)
             combined = plots.get("combined_png")
             if combined:
                 fs_path = combined
@@ -583,6 +635,7 @@ async def execute_agent_plan(plan, has_database_tables):
                 elif fs_path.startswith("/static/"):
                     fs_path = os.path.join(parent_dir, "frontend", fs_path[1:])
                 charts["forecast_combined"] = _png_to_base64(fs_path)
+
     if data_results is not None:
         data_payload = {
             "sql_data": data_results.to_dict("records"),
@@ -598,16 +651,6 @@ async def execute_agent_plan(plan, has_database_tables):
         "data": data_payload,
         "charts": charts if charts else None,
     }
-    # ----------------------------------------------------------------
-    
-    #return {
-        #'final_response': final_response,
-        #'data': {
-            #'sql_data': data_results.to_dict('records') if data_results is not None else None,
-            #'forecasts': forecasts,
-            #'anomalies': anomalies
-        #} if data_results is not None else None
-    #}
 
 async def get_chatgpt_response(user_query, has_dataset):
     try:
@@ -647,27 +690,22 @@ def build_final_response(insights, forecasts, anomalies, data_results, user_quer
 
     if insights:
         response_parts.append(f"📊 **Insights:**\n{insights}")
-    # ----------------------------------------------------------------------
-    #if forecasts and isinstance(forecasts, dict):
-        #forecast_text = "\n".join([f"- {k}: {v}" for k, v in forecasts.items()])
-        #response_parts.append(f"🔮 **Forecasts:**\n{forecast_text}")
-    #elif forecasts:
-        #response_parts.append(f"🔮 **Forecasts:**\n{forecasts}")
+
     if isinstance(forecasts, dict):
         md = forecasts.get("markdown")
         if md:
             response_parts.append(md)
-            print("Debug: appended markdown forecasts", md)
         else:
             response_parts.append(
                 "🔮 **Forecasts:**\n" + "\n".join([f"- {k}: {v}" for k, v in forecasts.items()])
             )
     elif forecasts:
         response_parts.append(f"🔮 **Forecasts:**\n{forecasts}")
-    # -----------------------------------------------------------------------
 
     if anomalies and isinstance(anomalies, dict):
-        response_parts.append(f"🚨 **Anomaly Detection:**\n{anomalies.get('message', 'No significant anomalies detected')}")
+        response_parts.append(
+            f"🚨 **Anomaly Detection:**\n{anomalies.get('message', 'No significant anomalies detected')}"
+        )
     elif anomalies:
         response_parts.append(f"🚨 **Anomaly Detection:**\n{anomalies}")
 
@@ -682,8 +720,7 @@ def build_final_response(insights, forecasts, anomalies, data_results, user_quer
 
     if not response_parts:
         response_parts.append(f"I've analyzed your query: '{user_query}'")
-    
-    #print("Debug: response_part:", response_parts)
+
     return "\n\n".join(response_parts)
 
 @app.get("/static/{file_path:path}")
@@ -694,12 +731,23 @@ async def serve_static(file_path: str):
         return FileResponse(static_path)
     raise HTTPException(status_code=404, detail="File not found")
 
+# ---------- NEW: feedback endpoint ----------
+@app.post("/feedback")
+async def submit_feedback(req: FeedbackRequest):
+    try:
+        rating = max(1, min(5, req.rating))  # clamp 1–5
+        feedback_agent.store_feedback(req.interaction_id, rating, req.comment)
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"Feedback submit error: {e}")
+        return {"success": False, "error": str(e)}
+# --------------------------------------------
+
 @app.on_event("startup")
 async def startup_event():
     logger.info("🚀 Starting Agentic Sales Assistant v2.0...")
 
     try:
-        from backend.utils.database import db_manager
         if db_manager.test_connection():
             logger.info("✅ Database connection successful")
         else:
