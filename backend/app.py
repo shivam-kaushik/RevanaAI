@@ -591,7 +591,7 @@ async def execute_agent_plan(plan, has_database_tables):
         }
     else:
         data_payload = {"forecasts": forecasts} if forecasts else None
-        print("Debug: data payload:", data_payload)
+        #print("Debug: data payload:", data_payload)
 
     return {
         "final_response": final_response,
@@ -657,7 +657,7 @@ def build_final_response(insights, forecasts, anomalies, data_results, user_quer
         md = forecasts.get("markdown")
         if md:
             response_parts.append(md)
-            print("Debug: appended markdown forecasts", md)
+            #print("Debug: appended markdown forecasts", md)
         else:
             response_parts.append(
                 "🔮 **Forecasts:**\n" + "\n".join([f"- {k}: {v}" for k, v in forecasts.items()])
