@@ -349,7 +349,7 @@ async def analyze_data(request: ChatRequest):
             }
         
         # Get active dataset info
-        active_dataset = dataset_manager.get_active_dataset()
+        active_dataset = dataset_manager.get_active_dataset()        
         
         # Step 1: Generate SQL query
         sql_query, sql_error = sql_agent.generate_sql(request.message)
