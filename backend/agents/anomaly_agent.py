@@ -13,26 +13,19 @@ class AnomalyAgent:
     def __init__(self, contamination=0.05):
         """Initialize the Anomaly Detection Agent
         
-        Args:
-            contamination (float): Expected proportion of outliers in the data (0.0 to 0.5)
+            contamination: Expected proportion of outliers in the data (0.0 to 0.5)
                 Default 0.05 means we expect ~5% of data to be anomalies
         """
         self.contamination = contamination
-        logger.info("🤖 Anomaly detection agent initialized")
+        logger.info("Anomaly detection agent initialized")
     
     def detect_anomalies(self, data, time_column='date', value_column='total_amount'):
         """Detect anomalies using IsolationForest or Z-score method
-        
-        Args:
             data (pd.DataFrame): Input dataframe with time and value columns
-            time_column (str): Name of the time column
-            value_column (str): Name of the value column
-            
-        Returns:
-            dict: Detection results including anomalies, narratives, plot, and statistics
+            Detection results including anomalies, narratives, plot, and statistics
         """
         try:
-            logger.info(f"🤖 Detecting anomalies in {len(data)} data points")
+            logger.info(f"Detecting anomalies in {len(data)} data points")
             
             # Convert to DataFrame if needed
             if isinstance(data, dict):
@@ -75,10 +68,13 @@ class AnomalyAgent:
             normal_data = data[~is_anomaly].copy()
             
             if anomalies.empty:
+                # Create visualization even when no anomalies found
+                fig = self._generate_plot(data, pd.DataFrame(), time_column, value_column)
                 return {
                     'success': True,
                     'method': method,
                     'message': 'No anomalies detected',
+                    'plot': fig,
                     'statistics': {
                         'total_points': len(data),
                         'anomalies_found': 0,
@@ -117,15 +113,10 @@ class AnomalyAgent:
 
     def detect_anomalies_by_category(self, data, time_column='date', value_column='total_amount', category_column='product_category'):
         """Detect anomalies per category and generate a combined visualization.
-        
-        Args:
-            data (pd.DataFrame): Input dataframe with time, value, and category columns
-            time_column (str): Name of the time column
-            value_column (str): Name of the value column
+       
             category_column (str): Name of the category column
         
-        Returns:
-            dict: Detection results including anomalies by category, narratives, plot, and statistics
+       
         """
         try:
             # Basic validation
@@ -163,7 +154,7 @@ class AnomalyAgent:
             # Build combined plot
             fig = go.Figure()
 
-            # Plot one line per category (all points), and red markers for that category's anomalies
+            # Plot one line per category (all points)
             categories = list(df[category_column].dropna().unique())
 
             total_points = 0
@@ -179,7 +170,7 @@ class AnomalyAgent:
                         'anomalies_found': 0,
                         'anomaly_rate': 0
                     }
-                    # Still plot the line so users see the series
+                    # Still plot the line
                     fig.add_trace(go.Scatter(
                         x=sub[time_column], y=sub[value_column],
                         mode='lines+markers', name=str(cat),
@@ -189,9 +180,11 @@ class AnomalyAgent:
 
                 total_points += len(sub)
 
-                # Log data for this category to help debug
+                # Log data for this category for debugging
                 logger.info(f"📊 Category '{cat}': {len(sub)} points")
-                logger.info(f"   Values: mean={sub[value_column].mean():.2f}, std={sub[value_column].std():.2f}")
+                mean_val = sub[value_column].mean()
+                std_val = sub[value_column].std()
+                logger.info(f"   Values: mean={mean_val:.2f}, std={std_val:.2f}")
                 logger.info(f"   Min={sub[value_column].min():.2f}, Max={sub[value_column].max():.2f}")
 
                 # Choose detection method based on length
@@ -204,9 +197,34 @@ class AnomalyAgent:
                 anomalies = sub[is_anomaly].copy()
                 normal = sub[~is_anomaly].copy()
 
-                # Log anomaly detection results
-                if not anomalies.empty:
+                # Calculate accuracy metrics
+                if not anomalies.empty and not normal.empty:
+                    # Calculate deviation scores for anomalies
+                    anomaly_deviations = []
+                    for _, anom in anomalies.iterrows():
+                        z_score = abs((anom[value_column] - mean_val) / std_val) if std_val > 0 else 0
+                        pct_dev = abs((anom[value_column] - mean_val) / mean_val * 100) if mean_val != 0 else 0
+                        anomaly_deviations.append((z_score, pct_dev))
+                    
+                    avg_z_score = np.mean([d[0] for d in anomaly_deviations])
+                    avg_pct_dev = np.mean([d[1] for d in anomaly_deviations])
+                    
+                    # Calculate separation quality (how far anomalies are from normal data)
+                    normal_max_dev = max(abs((normal[value_column] - mean_val) / std_val)) if std_val > 0 else 0
+                    separation_score = avg_z_score - normal_max_dev if len(normal) > 0 else avg_z_score
+                    
                     logger.info(f"   Detected {len(anomalies)} anomalies using {method}")
+                    logger.info(f"   Accuracy Metrics:")
+                    logger.info(f"   Average Z-score: {avg_z_score:.2f} (>3.0 = strong anomaly)")
+                    logger.info(f"   Average deviation: {avg_pct_dev:.1f}% from mean")
+                    logger.info(f"   Separation quality: {separation_score:.2f} (higher = clearer anomalies)")
+                    logger.info(f"   Anomaly rate: {len(anomalies)/len(sub)*100:.1f}% of data")
+                    
+                    for idx, (_, anom) in enumerate(anomalies.iterrows()):
+                        z, pct = anomaly_deviations[idx]
+                        logger.info(f"   - {anom[time_column].strftime('%Y-%m')}: {anom[value_column]:.2f} (z={z:.2f}, {pct:.1f}% dev)")
+                elif not anomalies.empty:
+                    logger.info(f"   Detected {len(anomalies)} anomalies using {method} (insufficient normal data for metrics)")
                     for _, anom in anomalies.iterrows():
                         logger.info(f"   - {anom[time_column].strftime('%Y-%m')}: {anom[value_column]:.2f}")
                 else:
@@ -299,11 +317,9 @@ class AnomalyAgent:
     def _prepare_datetime_column(self, column):
         """Prepare datetime column by handling timezones and converting to pandas datetime
         
-        Args:
-            column (pd.Series): DateTime column to prepare
+       DateTime column to prepare
             
-        Returns:
-            pd.Series: Cleaned datetime column without timezone
+        Returns: Cleaned datetime column without timezone
         """
         first_value = column.iloc[0] if len(column) > 0 else None
         
@@ -324,15 +340,9 @@ class AnomalyAgent:
     
     def _detect_zscore(self, values, threshold=3.0):
         """Detect anomalies using Z-score method
-        
-        Args:
-            values (pd.Series): Values to analyze
-            threshold (float): Z-score threshold for anomaly detection
-                Default 3.0 means values must be 3 standard deviations from mean
-                (captures ~99.7% of normal data, only extreme outliers flagged)
+ 
+                Default 3.0 - 3 standard deviations from mean
             
-        Returns:
-            tuple: (boolean array of anomalies, method name)
         """
         z_scores = np.abs(stats.zscore(values))
         is_anomaly = z_scores > threshold
@@ -341,12 +351,6 @@ class AnomalyAgent:
     
     def _detect_isolation_forest(self, values):
         """Detect anomalies using IsolationForest
-        
-        Args:
-            values (pd.Series): Values to analyze
-            
-        Returns:
-            tuple: (boolean array of anomalies, method name)
         """
         contamination_rate = min(self.contamination, 0.5)
         model = IsolationForest(
@@ -359,15 +363,8 @@ class AnomalyAgent:
         return is_anomaly, "isolation_forest"
     
     def _generate_narratives(self, anomalies, time_column):
-        """Generate human-readable narratives for detected anomalies
-        
-        Args:
-            anomalies (pd.DataFrame): DataFrame of anomalous points
-            time_column (str): Name of the time column
-            
-        Returns:
-            list: List of narrative strings
-        """
+        """Generate human-readable narratives for detected anomalies"""
+
         narratives = []
         for _, row in anomalies.iterrows():
             month_year = row[time_column].strftime('%B %Y')
@@ -378,15 +375,7 @@ class AnomalyAgent:
     
     def _generate_plot(self, data, anomalies, time_column, value_column):
         """Generate interactive Plotly chart with anomalies highlighted
-        
-        Args:
-            data (pd.DataFrame): Full dataset
-            anomalies (pd.DataFrame): Anomaly points
-            time_column (str): Name of the time column
-            value_column (str): Name of the value column
-            
-        Returns:
-            plotly.graph_objects.Figure: Interactive plot
+
         """
         fig = go.Figure()
         
@@ -435,10 +424,10 @@ class AnomalyAgent:
             margin=dict(t=90, b=80, l=60, r=20),
             template='plotly_white',
             hovermode='x unified',
-            height=500
+            height=400
         )
         
-        # Configure x-axis: show every other month with MM-YYYY format
+        # Configure x-axis
         fig.update_xaxes(
             tickangle=45,
             tickformat='%m-%Y',
@@ -450,14 +439,7 @@ class AnomalyAgent:
         return fig
     
     def summarize_anomalies(self, result):
-        """Generate a human-readable summary of anomaly detection results
-        
-        Args:
-            result (dict): Result from detect_anomalies
-            
-        Returns:
-            str: Summary text
-        """
+        """Generate a human-readable summary of anomaly detection results"""
         if not result.get('success'):
             return f"Analysis failed: {result.get('error', 'Unknown error')}"
         

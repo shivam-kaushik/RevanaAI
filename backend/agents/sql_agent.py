@@ -52,6 +52,329 @@ class SQLAgent:
             if not active_table:
                 return None, "No active dataset. Please upload a CSV file first."
 
+            # Detect anomaly/unusual pattern queries - generate aggregation SQL (optionally by group like category/product)
+            anomaly_keywords = ["anomal", "outlier", "unusual", "drop", "spike", "irregular", "abnormal", "unexpected"]
+            uq_lower = user_query.lower()
+            is_anomaly = any(keyword in uq_lower for keyword in anomaly_keywords)
+            # Detect desire for grouping (category/product/item/brand)
+            group_phrases = [
+                "by product", "per product", "each product",
+                "by category", "per category", "each category", "by product category", "product categories",
+                "by item", "per item", "each item",
+                "by sku", "per sku",
+                "by brand", "per brand"
+            ]
+            wants_group = any(p in uq_lower for p in group_phrases) or (
+                ("category" in uq_lower or "product" in uq_lower or "item" in uq_lower or "sku" in uq_lower or "brand" in uq_lower)
+                and "anomal" in uq_lower
+            )
+
+            # Helper: pick best grouping column present in the table
+            def _get_group_column():
+                try:
+                    cols = db_manager.execute_query_dict(
+                        f"""
+                        SELECT column_name
+                        FROM information_schema.columns
+                        WHERE table_name = '{active_table}'
+                        ORDER BY ordinal_position
+                        """
+                    )
+                    column_names = [c['column_name'] for c in cols]
+                except Exception:
+                    column_names = []
+
+                preferred = [
+                    # product-first
+                    'product', 'product_name', 'product_title', 'product_id', 'sku',
+                    # item variants
+                    'item', 'item_name',
+                    # brand
+                    'brand', 'brand_name',
+                    # categories
+                    'product_category', 'category', 'category_name'
+                ]
+                for c in preferred:
+                    if c in column_names:
+                        return c
+                # Fallback: None (no grouping available)
+                return None
+
+            if is_anomaly:
+                logger.info("🚨 Detected anomaly query - generating monthly aggregation SQL")
+                
+                # Grouped anomaly detection (category/product/etc.)
+                if wants_group:
+                    group_col = _get_group_column()
+                    if not group_col:
+                        logger.info("ℹ️ Grouping requested but no suitable column found; falling back to non-grouped")
+                    else:
+                        logger.info(f"🧩 Detected grouping dimension for anomaly query: {group_col}")
+                    # Timeframe filters for category grouping
+                    if group_col and ("last 3 months" in uq_lower or "last three months" in uq_lower):
+                        logger.info("🗓️ Applying 'last 3 months' timeframe with category grouping")
+                        sql = f"""
+                        WITH bounds AS (
+                            SELECT 
+                                (DATE_TRUNC('month', MAX(CAST(date AS DATE))) - INTERVAL '2 month') AS m_start,
+                                (DATE_TRUNC('month', MAX(CAST(date AS DATE))) + INTERVAL '1 month') AS m_end
+                            FROM {active_table}
+                            WHERE date IS NOT NULL
+                        ),
+                        monthly_sales AS (
+                            SELECT 
+                                DATE_TRUNC('month', CAST(t.date AS DATE)) as date,
+                                t.{group_col},
+                                SUM(t.total_amount) as total_amount,
+                                COUNT(*) as transaction_count
+                            FROM {active_table} t
+                            CROSS JOIN bounds b
+                            WHERE t.date IS NOT NULL
+                              AND CAST(t.date AS DATE) >= b.m_start
+                              AND CAST(t.date AS DATE) < b.m_end
+                            GROUP BY DATE_TRUNC('month', CAST(t.date AS DATE)), t.{group_col}
+                        )
+                        SELECT 
+                            date,
+                            {group_col},
+                            total_amount,
+                            transaction_count
+                        FROM monthly_sales
+                        ORDER BY {group_col}, date;
+                        """
+                        logger.info("✅ Generated category anomaly SQL for last 3 months")
+                        logger.info(f"🔍 SQL Query: {sql}")
+                        return sql, None
+                    
+                    if group_col and ("last 6 months" in uq_lower or "last six months" in uq_lower):
+                        logger.info("🗓️ Applying 'last 6 months' timeframe with category grouping")
+                        sql = f"""
+                        WITH bounds AS (
+                            SELECT 
+                                (DATE_TRUNC('month', MAX(CAST(date AS DATE))) - INTERVAL '5 month') AS m_start,
+                                (DATE_TRUNC('month', MAX(CAST(date AS DATE))) + INTERVAL '1 month') AS m_end
+                            FROM {active_table}
+                            WHERE date IS NOT NULL
+                        ),
+                        monthly_sales AS (
+                            SELECT 
+                                DATE_TRUNC('month', CAST(t.date AS DATE)) as date,
+                                t.{group_col},
+                                SUM(t.total_amount) as total_amount,
+                                COUNT(*) as transaction_count
+                            FROM {active_table} t
+                            CROSS JOIN bounds b
+                            WHERE t.date IS NOT NULL
+                              AND CAST(t.date AS DATE) >= b.m_start
+                              AND CAST(t.date AS DATE) < b.m_end
+                            GROUP BY DATE_TRUNC('month', CAST(t.date AS DATE)), t.{group_col}
+                        )
+                        SELECT 
+                            date,
+                            {group_col},
+                            total_amount,
+                            transaction_count
+                        FROM monthly_sales
+                        ORDER BY {group_col}, date;
+                        """
+                        logger.info("✅ Generated category anomaly SQL for last 6 months")
+                        logger.info(f"🔍 SQL Query: {sql}")
+                        return sql, None
+                    
+                    if group_col and ("last quarter" in uq_lower or "previous quarter" in uq_lower):
+                        logger.info("🗓️ Applying 'last quarter' timeframe with category grouping (previous completed quarter)")
+                        sql = f"""
+                        WITH latest AS (
+                            SELECT DATE_TRUNC('quarter', MAX(CAST(date AS DATE))) AS curr_q
+                            FROM {active_table}
+                            WHERE date IS NOT NULL
+                        ), bounds AS (
+                            SELECT (curr_q - INTERVAL '3 month') AS q_start,
+                                   curr_q AS q_end
+                            FROM latest
+                        ),
+                        monthly_sales AS (
+                            SELECT 
+                                DATE_TRUNC('month', CAST(t.date AS DATE)) as date,
+                                t.{group_col},
+                                SUM(t.total_amount) as total_amount,
+                                COUNT(*) as transaction_count
+                            FROM {active_table} t
+                            CROSS JOIN bounds b
+                            WHERE t.date IS NOT NULL
+                              AND CAST(t.date AS DATE) >= b.q_start
+                              AND CAST(t.date AS DATE) < b.q_end
+                            GROUP BY DATE_TRUNC('month', CAST(t.date AS DATE)), t.{group_col}
+                        )
+                        SELECT 
+                            date,
+                            {group_col},
+                            total_amount,
+                            transaction_count
+                        FROM monthly_sales
+                        ORDER BY {group_col}, date;
+                        """
+                        logger.info("✅ Generated category anomaly SQL for last quarter")
+                        logger.info(f"🔍 SQL Query: {sql}")
+                        return sql, None
+                    
+                    if group_col:
+                        # Full-range grouped monthly aggregation
+                        sql = f"""
+                        WITH monthly_sales AS (
+                            SELECT 
+                                DATE_TRUNC('month', CAST(date AS DATE)) as date,
+                                {group_col},
+                                SUM(total_amount) as total_amount,
+                                COUNT(*) as transaction_count
+                            FROM {active_table}
+                            WHERE date IS NOT NULL
+                            GROUP BY DATE_TRUNC('month', CAST(date AS DATE)), {group_col}
+                        )
+                        SELECT 
+                            date,
+                            {group_col},
+                            total_amount,
+                            transaction_count
+                        FROM monthly_sales
+                        ORDER BY {group_col}, date;
+                        """
+                        logger.info("✅ Generated grouped anomaly SQL without timeframe filter")
+                        logger.info(f"🔍 SQL Query: {sql}")
+                        return sql, None
+
+                # Optional timeframe filters (non-category case)
+                if "last 3 months" in uq_lower or "last three months" in uq_lower:
+                    logger.info("🗓️ Applying 'last 3 months' timeframe filter")
+                    sql = f"""
+                    WITH bounds AS (
+                        SELECT 
+                            (DATE_TRUNC('month', MAX(CAST(date AS DATE))) - INTERVAL '2 month') AS m_start,
+                            (DATE_TRUNC('month', MAX(CAST(date AS DATE))) + INTERVAL '1 month') AS m_end
+                        FROM {active_table}
+                        WHERE date IS NOT NULL
+                    ),
+                    monthly_sales AS (
+                        SELECT 
+                            DATE_TRUNC('month', CAST(t.date AS DATE)) as date,
+                            SUM(t.total_amount) as total_amount,
+                            COUNT(*) as transaction_count
+                        FROM {active_table} t
+                        CROSS JOIN bounds b
+                        WHERE t.date IS NOT NULL
+                          AND CAST(t.date AS DATE) >= b.m_start
+                          AND CAST(t.date AS DATE) < b.m_end
+                        GROUP BY DATE_TRUNC('month', CAST(t.date AS DATE))
+                    )
+                    SELECT 
+                        date,
+                        total_amount,
+                        transaction_count,
+                        AVG(total_amount) OVER () as avg_amount,
+                        STDDEV(total_amount) OVER () as stddev_amount
+                    FROM monthly_sales
+                    ORDER BY date;
+                    """
+                    logger.info("✅ Generated anomaly detection SQL for last 3 months")
+                    logger.info(f"🔍 SQL Query: {sql}")
+                    return sql, None
+                
+                if "last 6 months" in uq_lower or "last six months" in uq_lower:
+                    logger.info("🗓️ Applying 'last 6 months' timeframe filter")
+                    sql = f"""
+                    WITH bounds AS (
+                        SELECT 
+                            (DATE_TRUNC('month', MAX(CAST(date AS DATE))) - INTERVAL '5 month') AS m_start,
+                            (DATE_TRUNC('month', MAX(CAST(date AS DATE))) + INTERVAL '1 month') AS m_end
+                        FROM {active_table}
+                        WHERE date IS NOT NULL
+                    ),
+                    monthly_sales AS (
+                        SELECT 
+                            DATE_TRUNC('month', CAST(t.date AS DATE)) as date,
+                            SUM(t.total_amount) as total_amount,
+                            COUNT(*) as transaction_count
+                        FROM {active_table} t
+                        CROSS JOIN bounds b
+                        WHERE t.date IS NOT NULL
+                          AND CAST(t.date AS DATE) >= b.m_start
+                          AND CAST(t.date AS DATE) < b.m_end
+                        GROUP BY DATE_TRUNC('month', CAST(t.date AS DATE))
+                    )
+                    SELECT 
+                        date,
+                        total_amount,
+                        transaction_count,
+                        AVG(total_amount) OVER () as avg_amount,
+                        STDDEV(total_amount) OVER () as stddev_amount
+                    FROM monthly_sales
+                    ORDER BY date;
+                    """
+                    logger.info("✅ Generated anomaly detection SQL for last 6 months")
+                    logger.info(f"🔍 SQL Query: {sql}")
+                    return sql, None
+
+                if "last quarter" in uq_lower or "previous quarter" in uq_lower:
+                    logger.info("🗓️ Applying 'last quarter' timeframe filter (previous completed quarter)")
+                    sql = f"""
+                    WITH latest AS (
+                        SELECT DATE_TRUNC('quarter', MAX(CAST(date AS DATE))) AS curr_q
+                        FROM {active_table}
+                        WHERE date IS NOT NULL
+                    ), bounds AS (
+                        SELECT (curr_q - INTERVAL '3 month') AS q_start,
+                               curr_q AS q_end
+                        FROM latest
+                    ),
+                    monthly_sales AS (
+                        SELECT 
+                            DATE_TRUNC('month', CAST(t.date AS DATE)) as date,
+                            SUM(t.total_amount) as total_amount,
+                            COUNT(*) as transaction_count
+                        FROM {active_table} t
+                        CROSS JOIN bounds b
+                        WHERE t.date IS NOT NULL
+                          AND CAST(t.date AS DATE) >= b.q_start
+                          AND CAST(t.date AS DATE) < b.q_end
+                        GROUP BY DATE_TRUNC('month', CAST(t.date AS DATE))
+                    )
+                    SELECT 
+                        date,
+                        total_amount,
+                        transaction_count,
+                        AVG(total_amount) OVER () as avg_amount,
+                        STDDEV(total_amount) OVER () as stddev_amount
+                    FROM monthly_sales
+                    ORDER BY date;
+                    """
+                    logger.info("✅ Generated anomaly detection SQL for last quarter")
+                    logger.info(f"🔍 SQL Query: {sql}")
+                    return sql, None
+                
+                # Default: full-range monthly aggregation
+                sql = f"""
+                WITH monthly_sales AS (
+                    SELECT 
+                        DATE_TRUNC('month', CAST(date AS DATE)) as date,
+                        SUM(total_amount) as total_amount,
+                        COUNT(*) as transaction_count
+                    FROM {active_table}
+                    WHERE date IS NOT NULL
+                    GROUP BY DATE_TRUNC('month', CAST(date AS DATE))
+                )
+                SELECT 
+                    date,
+                    total_amount,
+                    transaction_count,
+                    AVG(total_amount) OVER () as avg_amount,
+                    STDDEV(total_amount) OVER () as stddev_amount
+                FROM monthly_sales
+                ORDER BY date;
+                """
+                logger.info("✅ Generated anomaly detection SQL without timeframe filter")
+                logger.info(f"🔍 SQL Query: {sql}")
+                return sql, None
+
             # Get schema info and context
             schema_info = self._get_table_schema(active_table)
             schema_context = vector_db.get_schema_context(user_query)
