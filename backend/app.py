@@ -673,38 +673,47 @@ async def execute_agent_plan(plan, has_database_tables):
                 return {'final_response': f"❌ Forecast error: {str(e)}"}
         # -------------------------------------------------------------
 
-        elif agent_name == "ANOMALY_AGENT" and data_results is not None:
-            # Detect anomalies with visualization
-            try:
-                group_candidates = ['product', 'product_name', 'product_title', 'product_id', 'sku', 'item', 'item_name', 'brand', 'brand_name', 'product_category', 'category', 'category_name']
-                group_col = next((c for c in group_candidates if c in data_results.columns), None)
-                if group_col:
-                    anomaly_result = anomaly_agent.detect_anomalies_by_category(
-                        data_results,
-                        time_column='date',
-                        value_column='total_amount',
-                        category_column=group_col
-                    )
-                else:
-                    anomaly_result = anomaly_agent.detect_anomalies(
-                        data_results,
-                        time_column='date',
-                        value_column='total_amount'
-                    )
-                if anomaly_result.get('success'):
-                    # Get the plot HTML
-                    plot_html = anomaly_result['plot'].to_html(full_html=False, include_plotlyjs='cdn')
-                    anomalies = {
-                        'summary': anomaly_agent.summarize_anomalies(anomaly_result),
-                        'plot_html': plot_html,
-                        'anomalies': anomaly_result.get('anomalies', anomaly_result.get('anomalies_by_category', [])),
-                        'statistics': anomaly_result.get('statistics', {})
-                    }
-                else:
-                    anomalies = {'message': anomaly_result.get('error', 'Anomaly detection failed')}
-            except Exception as e:
-                logger.error(f"Anomaly detection error: {e}")
-                anomalies = {'message': f'Error detecting anomalies: {str(e)}'}
+        elif agent_name == "ANOMALY_AGENT":
+            if data_results is None:
+                logger.warning("⚠️ ANOMALY_AGENT called but no data available! Skipping...")
+                anomalies = {'message': 'No data available for anomaly detection. Please ensure SQL_AGENT runs first.'}
+            else:
+                # Detect anomalies with visualization
+                logger.info(f"🚨 Running anomaly detection on {len(data_results)} rows...")
+                try:
+                    group_candidates = ['product', 'product_name', 'product_title', 'product_id', 'sku', 'item', 'item_name', 'brand', 'brand_name', 'product_category', 'category', 'category_name']
+                    group_col = next((c for c in group_candidates if c in data_results.columns), None)
+                    
+                    if group_col:
+                        anomaly_result = anomaly_agent.detect_anomalies_by_category(
+                            data_results,
+                            time_column='date',
+                            value_column='total_amount',
+                            category_column=group_col
+                        )
+                    else:
+                        anomaly_result = anomaly_agent.detect_anomalies(
+                            data_results,
+                            time_column='date',
+                            value_column='total_amount'
+                        )
+                    
+                    if anomaly_result.get('success'):
+                        # Get the plot HTML
+                        plot_html = anomaly_result['plot'].to_html(full_html=False, include_plotlyjs='cdn')
+                        anomalies = {
+                            'summary': anomaly_agent.summarize_anomalies(anomaly_result),
+                            'plot_html': plot_html,
+                            'anomalies': anomaly_result.get('anomalies', anomaly_result.get('anomalies_by_category', [])),
+                            'statistics': anomaly_result.get('statistics', {})
+                        }
+                        logger.info(f"✅ Anomaly detection completed successfully")
+                    else:
+                        anomalies = {'message': anomaly_result.get('error', 'Anomaly detection failed')}
+                        logger.error(f"❌ Anomaly detection failed: {anomaly_result.get('error')}")
+                except Exception as e:
+                    logger.error(f"❌ Anomaly detection error: {e}")
+                    anomalies = {'message': f'Error detecting anomalies: {str(e)}'}
     
     # Combine results into final response
     final_response = build_final_response(insights, forecasts, anomalies, data_results, user_query)

@@ -21,7 +21,7 @@ class IntentDetector:
         - Requests for analysis, insights, summaries
         - Queries about specific metrics or KPIs
         - Requests for predictions, forecasts
-        - Looking for anomalies or unusual patterns
+        - Looking for anomalies or unusual patterns (show/provide/find/detect/identify anomalies/outliers)
         - Asking for charts, graphs, visualizations
         - Searching for products, items, or best products
         - Looking for customers, users, or similar customers
@@ -48,10 +48,15 @@ class IntentDetector:
         
         Available agents: SQL_AGENT, INSIGHT_AGENT, FORECAST_AGENT, ANOMALY_AGENT, VISUALIZATION_AGENT, VECTOR_AGENT
         
-        IMPORTANT: 
-        - Queries asking for "best products", "find products", "show me products", etc. should use VECTOR_AGENT
-        - Queries asking for "similar customers", "find customers", etc. should use VECTOR_AGENT
-        - These are DATA QUERIES, not conversational queries
+        IMPORTANT RULES: 
+        - SQL_AGENT is REQUIRED for all data analysis queries (except pure VECTOR_AGENT searches)
+        - ANOMALY_AGENT requires SQL_AGENT to fetch data first: ["SQL_AGENT", "ANOMALY_AGENT"]
+        - INSIGHT_AGENT typically works with data from SQL_AGENT: ["SQL_AGENT", "INSIGHT_AGENT"]
+        - FORECAST_AGENT can work independently (has built-in SQL capability)
+        - Queries asking for "best products", "find products", "show me products", etc. should use VECTOR_AGENT only
+        - Queries asking for "similar customers", "find customers", etc. should use VECTOR_AGENT only
+        - ANY query containing words like "anomal", "outlier", "unusual", "spike", "drop", "detect", "provide", "show", "find" combined with data analysis context should return: ["SQL_AGENT", "ANOMALY_AGENT", "INSIGHT_AGENT"]
+        - "Provide me anomalies", "Show me anomalies", "Find anomalies", "Detect anomalies" are ALL anomaly detection queries
         """
     
     def detect_intent(self, user_query, has_active_dataset=True):
@@ -129,7 +134,9 @@ class IntentDetector:
         if any(keyword in query_lower for keyword in forecast_keywords):
             agents.append("FORECAST_AGENT")
         
-        anomaly_keywords = ['anomaly', 'outlier', 'unusual', 'strange', 'spike', 'drop', 'unexpected']
+        # More comprehensive anomaly detection keywords
+        anomaly_keywords = ['anomal', 'outlier', 'unusual', 'strange', 'spike', 'drop', 'unexpected', 
+                           'irregularit', 'aberration', 'deviation', 'abnormal']
         if any(keyword in query_lower for keyword in anomaly_keywords):
             agents.append("ANOMALY_AGENT")
         
