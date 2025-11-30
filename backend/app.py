@@ -402,24 +402,16 @@ async def analyze_data(request: ChatRequest):
         # Step 3: Handle anomaly detection or generate insights
         if is_anomaly_query:
             try:
-                logger.info("🚨 Running anomaly detection...")
-                # Decide if this is a grouped anomaly scenario by scanning for common group columns
-                group_candidates = ['product', 'product_name', 'product_title', 'product_id', 'sku', 'item', 'item_name', 'brand', 'brand_name', 'product_category', 'category', 'category_name']
-                group_col = next((c for c in group_candidates if c in data_results.columns), None)
-                if group_col:
-                    logger.info(f"🧩 Group column detected ('{group_col}'); running grouped anomaly detection")
-                    anomaly_result = anomaly_agent.detect_anomalies_by_category(
-                        data_results,
-                        time_column='date',
-                        value_column='total_amount',
-                        category_column=group_col
-                    )
+                logger.info("🚨 Running anomaly detection with auto-column detection...")
+                # Try to auto-detect if there's a category column
+                category_col = anomaly_agent._auto_detect_category_column(data_results)
+                
+                if category_col:
+                    logger.info(f"🏷️ Detected category column: {category_col}, running grouped anomaly detection")
+                    anomaly_result = anomaly_agent.detect_anomalies_by_category(data_results)
                 else:
-                    anomaly_result = anomaly_agent.detect_anomalies(
-                        data_results,
-                        time_column='date',
-                        value_column='total_amount'
-                    )
+                    logger.info(f"📊 No category column detected, running single anomaly detection")
+                    anomaly_result = anomaly_agent.detect_anomalies(data_results)
                 
                 if anomaly_result.get('success'):
                     # Get the plot HTML (single or grouped)
@@ -430,7 +422,7 @@ async def analyze_data(request: ChatRequest):
                     logger.info(f"✅ Plot HTML preview: {plot_html[:200]}...")
                     
                     # Format response (text only, plot will be rendered separately)
-                    if group_col:
+                    if category_col:
                         response_text = f"🚨 **Category Anomaly Detection Results**\n\n"
                     else:
                         response_text = f"🚨 **Anomaly Detection Results**\n\n"
@@ -445,8 +437,8 @@ async def analyze_data(request: ChatRequest):
                         "response": response_text,
                         "plot_html": plot_html,  # Send plot separately
                         "data": anomaly_result.get('anomalies', anomaly_result.get('anomalies_by_category', [])),
-                        "grouped": bool(group_col),
-                        "group_column": group_col,
+                        "grouped": bool(category_col),
+                        "group_column": category_col,
                         "statistics": anomaly_result.get('statistics', {}),
                         "sql_query": sql_query
                     }
@@ -678,25 +670,18 @@ async def execute_agent_plan(plan, has_database_tables):
                 logger.warning("⚠️ ANOMALY_AGENT called but no data available! Skipping...")
                 anomalies = {'message': 'No data available for anomaly detection. Please ensure SQL_AGENT runs first.'}
             else:
-                # Detect anomalies with visualization
+                # Detect anomalies with visualization (now with auto-detection)
                 logger.info(f"🚨 Running anomaly detection on {len(data_results)} rows...")
                 try:
-                    group_candidates = ['product', 'product_name', 'product_title', 'product_id', 'sku', 'item', 'item_name', 'brand', 'brand_name', 'product_category', 'category', 'category_name']
-                    group_col = next((c for c in group_candidates if c in data_results.columns), None)
+                    # Try to auto-detect if there's a category column
+                    category_col = anomaly_agent._auto_detect_category_column(data_results)
                     
-                    if group_col:
-                        anomaly_result = anomaly_agent.detect_anomalies_by_category(
-                            data_results,
-                            time_column='date',
-                            value_column='total_amount',
-                            category_column=group_col
-                        )
+                    if category_col:
+                        logger.info(f"🏷️ Detected category column: {category_col}, running grouped anomaly detection")
+                        anomaly_result = anomaly_agent.detect_anomalies_by_category(data_results)
                     else:
-                        anomaly_result = anomaly_agent.detect_anomalies(
-                            data_results,
-                            time_column='date',
-                            value_column='total_amount'
-                        )
+                        logger.info(f"📊 No category column detected, running single anomaly detection")
+                        anomaly_result = anomaly_agent.detect_anomalies(data_results)
                     
                     if anomaly_result.get('success'):
                         # Get the plot HTML

@@ -77,30 +77,122 @@ class SQLAgent:
                 and "anomal" in uq_lower
             )
 
-            # Helper: pick best grouping column present in the table
-            def _get_group_column():
+            # Helper: get column names and types from schema
+            def _get_table_columns():
                 try:
                     cols = db_manager.execute_query_dict(
                         f"""
-                        SELECT column_name
+                        SELECT column_name, data_type
                         FROM information_schema.columns
                         WHERE table_name = '{active_table}'
                         ORDER BY ordinal_position
                         """
                     )
-                    column_names = [c['column_name'] for c in cols]
+                    return cols
                 except Exception:
-                    column_names = []
+                    return []
+            
+            # Helper: detect date/time column and its data type
+            def _get_date_column_info():
+                cols = _get_table_columns()
+                column_names = [c['column_name'] for c in cols]
+                
+                # Preferred date column names
+                date_keywords = ['date', 'invoicedate', 'orderdate', 'transactiondate', 'timestamp', 'time']
+                for keyword in date_keywords:
+                    for col in column_names:
+                        if keyword == col.lower().replace('_', ''):
+                            # Find the data type for this column
+                            col_info = next((c for c in cols if c['column_name'] == col), None)
+                            return {'name': col, 'type': col_info['data_type'] if col_info else 'unknown'}
+                
+                # Fallback: check data types
+                for col_info in cols:
+                    if 'timestamp' in col_info['data_type'].lower() or 'date' in col_info['data_type'].lower():
+                        return {'name': col_info['column_name'], 'type': col_info['data_type']}
+                
+                return {'name': 'date', 'type': 'unknown'}  # ultimate fallback
+            
+            # Helper: get SQL expression to convert column to DATE based on its type
+            def _get_date_cast_expr(col_name, col_type):
+                col_type_lower = col_type.lower()
+                
+                # If already a date/timestamp type, just cast it
+                if 'timestamp' in col_type_lower or 'date' in col_type_lower:
+                    return f"CAST({col_name} AS DATE)"
+                
+                # If it's text/varchar/character varying, detect the format by sampling
+                if any(t in col_type_lower for t in ['text', 'varchar', 'character varying', 'char']):
+                    # Sample a few values to detect format
+                    try:
+                        sample_query = f"SELECT {col_name} FROM {active_table} WHERE {col_name} IS NOT NULL LIMIT 1"
+                        result = db_manager.execute_query_dict(sample_query)
+                        if result and len(result) > 0:
+                            sample_value = str(result[0][col_name])
+                            
+                            # Detect format based on sample
+                            if '/' in sample_value:
+                                # Could be MM/DD/YYYY or DD/MM/YYYY
+                                parts = sample_value.split('/')
+                                if len(parts) >= 3:
+                                    # If first part > 12, it's DD/MM/YYYY, else MM/DD/YYYY
+                                    first_num = int(parts[0].split()[0])  # Handle time if present
+                                    if first_num > 12:
+                                        return f"TO_DATE({col_name}, 'DD/MM/YYYY')"
+                                    else:
+                                        return f"TO_DATE({col_name}, 'MM/DD/YYYY')"
+                            elif '-' in sample_value:
+                                # Could be YYYY-MM-DD or DD-MM-YYYY
+                                parts = sample_value.split('-')
+                                if len(parts) >= 3:
+                                    # If first part is 4 digits, it's YYYY-MM-DD
+                                    if len(parts[0]) == 4:
+                                        return f"TO_DATE({col_name}, 'YYYY-MM-DD')"
+                                    else:
+                                        return f"TO_DATE({col_name}, 'DD-MM-YYYY')"
+                    except Exception as e:
+                        logger.warning(f"⚠️ Could not detect date format, using default: {e}")
+                    
+                    # Fallback to MM/DD/YYYY
+                    return f"TO_DATE({col_name}, 'MM/DD/YYYY')"
+                
+                # Default fallback
+                return f"CAST({col_name} AS DATE)"
+            
+            # Helper: detect value/amount column
+            def _get_value_column():
+                cols = _get_table_columns()
+                column_names = [c['column_name'] for c in cols]
+                
+                # Preferred value column names in priority order
+                value_keywords = ['total_amount', 'totalamount', 'amount', 'total', 'quantity', 'qty', 'unitprice', 'price', 'revenue', 'sales', 'value']
+                for keyword in value_keywords:
+                    for col in column_names:
+                        if keyword == col.lower().replace('_', '').replace(' ', ''):
+                            return col
+                
+                # Fallback: find first numeric column
+                for col_info in cols:
+                    data_type = col_info['data_type'].lower()
+                    if any(t in data_type for t in ['int', 'numeric', 'decimal', 'float', 'double', 'real']):
+                        return col_info['column_name']
+                
+                return 'total_amount'  # ultimate fallback
+            
+            # Helper: pick best grouping column present in the table
+            def _get_group_column():
+                cols = _get_table_columns()
+                column_names = [c['column_name'] for c in cols]
 
                 preferred = [
                     # product-first
                     'product', 'product_name', 'product_title', 'product_id', 'sku',
                     # item variants
-                    'item', 'item_name',
+                    'item', 'item_name', 'description',
                     # brand
                     'brand', 'brand_name',
                     # categories
-                    'product_category', 'category', 'category_name'
+                    'product_category', 'category', 'category_name', 'productcategory'
                 ]
                 for c in preferred:
                     if c in column_names:
@@ -110,6 +202,19 @@ class SQLAgent:
 
             if is_anomaly:
                 logger.info("🚨 Detected anomaly query - generating monthly aggregation SQL")
+                
+                # Detect column names and types from schema
+                date_col_info = _get_date_column_info()
+                date_col = date_col_info['name']
+                date_type = date_col_info['type']
+                value_col = _get_value_column()
+                
+                # Get proper date casting expression
+                date_cast = _get_date_cast_expr(date_col, date_type)
+                
+                logger.info(f"📅 Detected date column: {date_col} (type: {date_type})")
+                logger.info(f"💰 Detected value column: {value_col}")
+                logger.info(f"🔧 Date conversion: {date_cast}")
                 
                 # Grouped anomaly detection (category/product/etc.)
                 if wants_group:
@@ -124,31 +229,31 @@ class SQLAgent:
                         sql = f"""
                         WITH bounds AS (
                             SELECT 
-                                (DATE_TRUNC('month', MAX(CAST(date AS DATE))) - INTERVAL '2 month') AS m_start,
-                                (DATE_TRUNC('month', MAX(CAST(date AS DATE))) + INTERVAL '1 month') AS m_end
+                                (DATE_TRUNC('month', MAX({date_cast})) - INTERVAL '2 month') AS m_start,
+                                (DATE_TRUNC('month', MAX({date_cast})) + INTERVAL '1 month') AS m_end
                             FROM {active_table}
-                            WHERE date IS NOT NULL
+                            WHERE {date_col} IS NOT NULL
                         ),
                         monthly_sales AS (
                             SELECT 
-                                DATE_TRUNC('month', CAST(t.date AS DATE)) as date,
+                                DATE_TRUNC('month', {date_cast}) as {date_col},
                                 t.{group_col},
-                                SUM(t.total_amount) as total_amount,
+                                SUM(t.{value_col}) as {value_col},
                                 COUNT(*) as transaction_count
                             FROM {active_table} t
                             CROSS JOIN bounds b
-                            WHERE t.date IS NOT NULL
-                              AND CAST(t.date AS DATE) >= b.m_start
-                              AND CAST(t.date AS DATE) < b.m_end
-                            GROUP BY DATE_TRUNC('month', CAST(t.date AS DATE)), t.{group_col}
+                            WHERE t.{date_col} IS NOT NULL
+                              AND {date_cast} >= b.m_start
+                              AND {date_cast} < b.m_end
+                            GROUP BY DATE_TRUNC('month', {date_cast}), t.{group_col}
                         )
                         SELECT 
-                            date,
+                            {date_col},
                             {group_col},
-                            total_amount,
+                            {value_col},
                             transaction_count
                         FROM monthly_sales
-                        ORDER BY {group_col}, date;
+                        ORDER BY {group_col}, {date_col};
                         """
                         logger.info("✅ Generated category anomaly SQL for last 3 months")
                         logger.info(f"🔍 SQL Query: {sql}")
@@ -159,31 +264,31 @@ class SQLAgent:
                         sql = f"""
                         WITH bounds AS (
                             SELECT 
-                                (DATE_TRUNC('month', MAX(CAST(date AS DATE))) - INTERVAL '5 month') AS m_start,
-                                (DATE_TRUNC('month', MAX(CAST(date AS DATE))) + INTERVAL '1 month') AS m_end
+                                (DATE_TRUNC('month', MAX({date_cast})) - INTERVAL '5 month') AS m_start,
+                                (DATE_TRUNC('month', MAX({date_cast})) + INTERVAL '1 month') AS m_end
                             FROM {active_table}
-                            WHERE date IS NOT NULL
+                            WHERE {date_col} IS NOT NULL
                         ),
                         monthly_sales AS (
                             SELECT 
-                                DATE_TRUNC('month', CAST(t.date AS DATE)) as date,
+                                DATE_TRUNC('month', {date_cast}) as {date_col},
                                 t.{group_col},
-                                SUM(t.total_amount) as total_amount,
+                                SUM(t.{value_col}) as {value_col},
                                 COUNT(*) as transaction_count
                             FROM {active_table} t
                             CROSS JOIN bounds b
-                            WHERE t.date IS NOT NULL
-                              AND CAST(t.date AS DATE) >= b.m_start
-                              AND CAST(t.date AS DATE) < b.m_end
-                            GROUP BY DATE_TRUNC('month', CAST(t.date AS DATE)), t.{group_col}
+                            WHERE t.{date_col} IS NOT NULL
+                              AND {date_cast} >= b.m_start
+                              AND {date_cast} < b.m_end
+                            GROUP BY DATE_TRUNC('month', {date_cast}), t.{group_col}
                         )
                         SELECT 
-                            date,
+                            {date_col},
                             {group_col},
-                            total_amount,
+                            {value_col},
                             transaction_count
                         FROM monthly_sales
-                        ORDER BY {group_col}, date;
+                        ORDER BY {group_col}, {date_col};
                         """
                         logger.info("✅ Generated category anomaly SQL for last 6 months")
                         logger.info(f"🔍 SQL Query: {sql}")
@@ -193,9 +298,9 @@ class SQLAgent:
                         logger.info("🗓️ Applying 'last quarter' timeframe with category grouping (previous completed quarter)")
                         sql = f"""
                         WITH latest AS (
-                            SELECT DATE_TRUNC('quarter', MAX(CAST(date AS DATE))) AS curr_q
+                            SELECT DATE_TRUNC('quarter', MAX({date_cast})) AS curr_q
                             FROM {active_table}
-                            WHERE date IS NOT NULL
+                            WHERE {date_col} IS NOT NULL
                         ), bounds AS (
                             SELECT (curr_q - INTERVAL '3 month') AS q_start,
                                    curr_q AS q_end
@@ -203,24 +308,24 @@ class SQLAgent:
                         ),
                         monthly_sales AS (
                             SELECT 
-                                DATE_TRUNC('month', CAST(t.date AS DATE)) as date,
+                                DATE_TRUNC('month', {date_cast}) as {date_col},
                                 t.{group_col},
-                                SUM(t.total_amount) as total_amount,
+                                SUM(t.{value_col}) as {value_col},
                                 COUNT(*) as transaction_count
                             FROM {active_table} t
                             CROSS JOIN bounds b
-                            WHERE t.date IS NOT NULL
-                              AND CAST(t.date AS DATE) >= b.q_start
-                              AND CAST(t.date AS DATE) < b.q_end
-                            GROUP BY DATE_TRUNC('month', CAST(t.date AS DATE)), t.{group_col}
+                            WHERE t.{date_col} IS NOT NULL
+                              AND {date_cast} >= b.q_start
+                              AND {date_cast} < b.q_end
+                            GROUP BY DATE_TRUNC('month', {date_cast}), t.{group_col}
                         )
                         SELECT 
-                            date,
+                            {date_col},
                             {group_col},
-                            total_amount,
+                            {value_col},
                             transaction_count
                         FROM monthly_sales
-                        ORDER BY {group_col}, date;
+                        ORDER BY {group_col}, {date_col};
                         """
                         logger.info("✅ Generated category anomaly SQL for last quarter")
                         logger.info(f"🔍 SQL Query: {sql}")
@@ -231,21 +336,21 @@ class SQLAgent:
                         sql = f"""
                         WITH monthly_sales AS (
                             SELECT 
-                                DATE_TRUNC('month', CAST(date AS DATE)) as date,
+                                DATE_TRUNC('month', {date_cast}) as {date_col},
                                 {group_col},
-                                SUM(total_amount) as total_amount,
+                                SUM({value_col}) as {value_col},
                                 COUNT(*) as transaction_count
                             FROM {active_table}
-                            WHERE date IS NOT NULL
-                            GROUP BY DATE_TRUNC('month', CAST(date AS DATE)), {group_col}
+                            WHERE {date_col} IS NOT NULL
+                            GROUP BY DATE_TRUNC('month', {date_cast}), {group_col}
                         )
                         SELECT 
-                            date,
+                            {date_col},
                             {group_col},
-                            total_amount,
+                            {value_col},
                             transaction_count
                         FROM monthly_sales
-                        ORDER BY {group_col}, date;
+                        ORDER BY {group_col}, {date_col};
                         """
                         logger.info("✅ Generated grouped anomaly SQL without timeframe filter")
                         logger.info(f"🔍 SQL Query: {sql}")
@@ -257,31 +362,31 @@ class SQLAgent:
                     sql = f"""
                     WITH bounds AS (
                         SELECT 
-                            (DATE_TRUNC('month', MAX(CAST(date AS DATE))) - INTERVAL '2 month') AS m_start,
-                            (DATE_TRUNC('month', MAX(CAST(date AS DATE))) + INTERVAL '1 month') AS m_end
+                            (DATE_TRUNC('month', MAX({date_cast})) - INTERVAL '2 month') AS m_start,
+                            (DATE_TRUNC('month', MAX({date_cast})) + INTERVAL '1 month') AS m_end
                         FROM {active_table}
-                        WHERE date IS NOT NULL
+                        WHERE {date_col} IS NOT NULL
                     ),
                     monthly_sales AS (
                         SELECT 
-                            DATE_TRUNC('month', CAST(t.date AS DATE)) as date,
-                            SUM(t.total_amount) as total_amount,
+                            DATE_TRUNC('month', {date_cast}) as {date_col},
+                            SUM(t.{value_col}) as {value_col},
                             COUNT(*) as transaction_count
                         FROM {active_table} t
                         CROSS JOIN bounds b
-                        WHERE t.date IS NOT NULL
-                          AND CAST(t.date AS DATE) >= b.m_start
-                          AND CAST(t.date AS DATE) < b.m_end
-                        GROUP BY DATE_TRUNC('month', CAST(t.date AS DATE))
+                        WHERE t.{date_col} IS NOT NULL
+                          AND {date_cast} >= b.m_start
+                          AND {date_cast} < b.m_end
+                        GROUP BY DATE_TRUNC('month', {date_cast})
                     )
                     SELECT 
-                        date,
-                        total_amount,
+                        {date_col},
+                        {value_col},
                         transaction_count,
-                        AVG(total_amount) OVER () as avg_amount,
-                        STDDEV(total_amount) OVER () as stddev_amount
+                        AVG({value_col}) OVER () as avg_amount,
+                        STDDEV({value_col}) OVER () as stddev_amount
                     FROM monthly_sales
-                    ORDER BY date;
+                    ORDER BY {date_col};
                     """
                     logger.info("✅ Generated anomaly detection SQL for last 3 months")
                     logger.info(f"🔍 SQL Query: {sql}")
@@ -292,31 +397,31 @@ class SQLAgent:
                     sql = f"""
                     WITH bounds AS (
                         SELECT 
-                            (DATE_TRUNC('month', MAX(CAST(date AS DATE))) - INTERVAL '5 month') AS m_start,
-                            (DATE_TRUNC('month', MAX(CAST(date AS DATE))) + INTERVAL '1 month') AS m_end
+                            (DATE_TRUNC('month', MAX({date_cast})) - INTERVAL '5 month') AS m_start,
+                            (DATE_TRUNC('month', MAX({date_cast})) + INTERVAL '1 month') AS m_end
                         FROM {active_table}
-                        WHERE date IS NOT NULL
+                        WHERE {date_col} IS NOT NULL
                     ),
                     monthly_sales AS (
                         SELECT 
-                            DATE_TRUNC('month', CAST(t.date AS DATE)) as date,
-                            SUM(t.total_amount) as total_amount,
+                            DATE_TRUNC('month', {date_cast}) as {date_col},
+                            SUM(t.{value_col}) as {value_col},
                             COUNT(*) as transaction_count
                         FROM {active_table} t
                         CROSS JOIN bounds b
-                        WHERE t.date IS NOT NULL
-                          AND CAST(t.date AS DATE) >= b.m_start
-                          AND CAST(t.date AS DATE) < b.m_end
-                        GROUP BY DATE_TRUNC('month', CAST(t.date AS DATE))
+                        WHERE t.{date_col} IS NOT NULL
+                          AND {date_cast} >= b.m_start
+                          AND {date_cast} < b.m_end
+                        GROUP BY DATE_TRUNC('month', {date_cast})
                     )
                     SELECT 
-                        date,
-                        total_amount,
+                        {date_col},
+                        {value_col},
                         transaction_count,
-                        AVG(total_amount) OVER () as avg_amount,
-                        STDDEV(total_amount) OVER () as stddev_amount
+                        AVG({value_col}) OVER () as avg_amount,
+                        STDDEV({value_col}) OVER () as stddev_amount
                     FROM monthly_sales
-                    ORDER BY date;
+                    ORDER BY {date_col};
                     """
                     logger.info("✅ Generated anomaly detection SQL for last 6 months")
                     logger.info(f"🔍 SQL Query: {sql}")
@@ -326,9 +431,9 @@ class SQLAgent:
                     logger.info("🗓️ Applying 'last quarter' timeframe filter (previous completed quarter)")
                     sql = f"""
                     WITH latest AS (
-                        SELECT DATE_TRUNC('quarter', MAX(CAST(date AS DATE))) AS curr_q
+                        SELECT DATE_TRUNC('quarter', MAX({date_cast})) AS curr_q
                         FROM {active_table}
-                        WHERE date IS NOT NULL
+                        WHERE {date_col} IS NOT NULL
                     ), bounds AS (
                         SELECT (curr_q - INTERVAL '3 month') AS q_start,
                                curr_q AS q_end
@@ -336,24 +441,24 @@ class SQLAgent:
                     ),
                     monthly_sales AS (
                         SELECT 
-                            DATE_TRUNC('month', CAST(t.date AS DATE)) as date,
-                            SUM(t.total_amount) as total_amount,
+                            DATE_TRUNC('month', {date_cast}) as {date_col},
+                            SUM(t.{value_col}) as {value_col},
                             COUNT(*) as transaction_count
                         FROM {active_table} t
                         CROSS JOIN bounds b
-                        WHERE t.date IS NOT NULL
-                          AND CAST(t.date AS DATE) >= b.q_start
-                          AND CAST(t.date AS DATE) < b.q_end
-                        GROUP BY DATE_TRUNC('month', CAST(t.date AS DATE))
+                        WHERE t.{date_col} IS NOT NULL
+                          AND {date_cast} >= b.q_start
+                          AND {date_cast} < b.q_end
+                        GROUP BY DATE_TRUNC('month', {date_cast})
                     )
                     SELECT 
-                        date,
-                        total_amount,
+                        {date_col},
+                        {value_col},
                         transaction_count,
-                        AVG(total_amount) OVER () as avg_amount,
-                        STDDEV(total_amount) OVER () as stddev_amount
+                        AVG({value_col}) OVER () as avg_amount,
+                        STDDEV({value_col}) OVER () as stddev_amount
                     FROM monthly_sales
-                    ORDER BY date;
+                    ORDER BY {date_col};
                     """
                     logger.info("✅ Generated anomaly detection SQL for last quarter")
                     logger.info(f"🔍 SQL Query: {sql}")
@@ -363,21 +468,21 @@ class SQLAgent:
                 sql = f"""
                 WITH monthly_sales AS (
                     SELECT 
-                        DATE_TRUNC('month', CAST(date AS DATE)) as date,
-                        SUM(total_amount) as total_amount,
+                        DATE_TRUNC('month', {date_cast}) as {date_col},
+                        SUM({value_col}) as {value_col},
                         COUNT(*) as transaction_count
                     FROM {active_table}
-                    WHERE date IS NOT NULL
-                    GROUP BY DATE_TRUNC('month', CAST(date AS DATE))
+                    WHERE {date_col} IS NOT NULL
+                    GROUP BY DATE_TRUNC('month', {date_cast})
                 )
                 SELECT 
-                    date,
-                    total_amount,
+                    {date_col},
+                    {value_col},
                     transaction_count,
-                    AVG(total_amount) OVER () as avg_amount,
-                    STDDEV(total_amount) OVER () as stddev_amount
+                    AVG({value_col}) OVER () as avg_amount,
+                    STDDEV({value_col}) OVER () as stddev_amount
                 FROM monthly_sales
-                ORDER BY date;
+                ORDER BY {date_col};
                 """
                 logger.info("✅ Generated anomaly detection SQL without timeframe filter")
                 logger.info(f"🔍 SQL Query: {sql}")
@@ -526,3 +631,9 @@ class SQLAgent:
             return None
 
         return sql_query
+
+
+
+
+
+

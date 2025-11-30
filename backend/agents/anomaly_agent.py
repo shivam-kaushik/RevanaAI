@@ -19,9 +19,67 @@ class AnomalyAgent:
         self.contamination = contamination
         logger.info("Anomaly detection agent initialized")
     
-    def detect_anomalies(self, data, time_column='date', value_column='total_amount'):
+    def _auto_detect_date_column(self, data):
+        """Intelligently detect the date/time column"""
+        date_keywords = ['date', 'time', 'timestamp', 'invoicedate', 'orderdate', 'transactiondate']
+        
+        for col in data.columns:
+            col_lower = col.lower().replace('_', '').replace(' ', '')
+            if any(keyword in col_lower for keyword in date_keywords):
+                return col
+        
+        # Fallback: check data types
+        for col in data.columns:
+            if pd.api.types.is_datetime64_any_dtype(data[col]):
+                return col
+        
+        return None
+    
+    def _auto_detect_value_column(self, data):
+        """Intelligently detect the numeric value column for anomaly detection"""
+        # Priority order for value columns
+        value_keywords = [
+            'total_amount', 'totalamount', 'amount', 'total',
+            'quantity', 'qty', 
+            'unitprice', 'price', 
+            'revenue', 'sales', 'value'
+        ]
+        
+        for keyword in value_keywords:
+            for col in data.columns:
+                col_lower = col.lower().replace('_', '').replace(' ', '')
+                if keyword == col_lower:
+                    if pd.api.types.is_numeric_dtype(data[col]):
+                        return col
+        
+        # Fallback: find first numeric column
+        for col in data.columns:
+            if pd.api.types.is_numeric_dtype(data[col]):
+                return col
+        
+        return None
+    
+    def _auto_detect_category_column(self, data):
+        """Intelligently detect the category/grouping column"""
+        category_keywords = [
+            'product_category', 'productcategory', 'category',
+            'product', 'description', 'item', 'productitem',
+            'type', 'class', 'group', 'segment'
+        ]
+        
+        for keyword in category_keywords:
+            for col in data.columns:
+                col_lower = col.lower().replace('_', '').replace(' ', '')
+                if keyword in col_lower:
+                    return col
+        
+        return None
+    
+    def detect_anomalies(self, data, time_column=None, value_column=None):
         """Detect anomalies using IsolationForest or Z-score method
             data (pd.DataFrame): Input dataframe with time and value columns
+            time_column: Optional - will auto-detect if not provided
+            value_column: Optional - will auto-detect if not provided
             Detection results including anomalies, narratives, plot, and statistics
         """
         try:
@@ -31,7 +89,28 @@ class AnomalyAgent:
             if isinstance(data, dict):
                 data = pd.DataFrame([data])
             
-            # Validate required columns
+            # Auto-detect columns if not provided
+            if time_column is None:
+                time_column = self._auto_detect_date_column(data)
+                if time_column:
+                    logger.info(f"📅 Auto-detected date column: {time_column}")
+                else:
+                    return {
+                        'success': False,
+                        'error': "Could not find a date/time column in the data"
+                    }
+            
+            if value_column is None:
+                value_column = self._auto_detect_value_column(data)
+                if value_column:
+                    logger.info(f"💰 Auto-detected value column: {value_column}")
+                else:
+                    return {
+                        'success': False,
+                        'error': "Could not find a numeric value column in the data"
+                    }
+            
+            # Validate required columns exist
             if time_column not in data.columns or value_column not in data.columns:
                 return {
                     'success': False,
@@ -111,17 +190,47 @@ class AnomalyAgent:
                 'error': str(e)
             }
 
-    def detect_anomalies_by_category(self, data, time_column='date', value_column='total_amount', category_column='product_category'):
+    def detect_anomalies_by_category(self, data, time_column=None, value_column=None, category_column=None):
         """Detect anomalies per category and generate a combined visualization.
-       
-            category_column (str): Name of the category column
-        
-       
+            time_column: Optional - will auto-detect if not provided
+            value_column: Optional - will auto-detect if not provided
+            category_column: Optional - will auto-detect if not provided
         """
         try:
             # Basic validation
             if not isinstance(data, pd.DataFrame):
                 data = pd.DataFrame(data)
+
+            # Auto-detect columns if not provided
+            if time_column is None:
+                time_column = self._auto_detect_date_column(data)
+                if time_column:
+                    logger.info(f"📅 Auto-detected date column: {time_column}")
+                else:
+                    return {
+                        'success': False,
+                        'error': "Could not find a date/time column in the data"
+                    }
+            
+            if value_column is None:
+                value_column = self._auto_detect_value_column(data)
+                if value_column:
+                    logger.info(f"💰 Auto-detected value column: {value_column}")
+                else:
+                    return {
+                        'success': False,
+                        'error': "Could not find a numeric value column in the data"
+                    }
+            
+            if category_column is None:
+                category_column = self._auto_detect_category_column(data)
+                if category_column:
+                    logger.info(f"🏷️ Auto-detected category column: {category_column}")
+                else:
+                    return {
+                        'success': False,
+                        'error': "Could not find a category column in the data"
+                    }
 
             missing = [c for c in [time_column, value_column, category_column] if c not in data.columns]
             if missing:
