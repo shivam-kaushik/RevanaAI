@@ -1,6 +1,7 @@
 import logging
 import re
 from openai import OpenAI
+
 from backend.config import Config, USE_QWEN_MODEL
 from backend.utils.dataset_manager import DatasetManager
 from backend.utils.database import db_manager
@@ -11,13 +12,15 @@ logger = logging.getLogger(__name__)
 
 class SQLAgent:
     def __init__(self):
+        # OpenAI client for GPT fallback
         self.client = OpenAI(api_key=Config.OPENAI_API_KEY)
         self.dataset_manager = DatasetManager()
 
-        # Try loading embedded Qwen Text2SQL
+        # --- Try loading embedded Qwen Text2SQL model ---
         try:
             from backend.agents.text2sql_qwen.model_loader import get_model
             from backend.agents.text2sql_qwen.prompting import build_messages
+
             self.use_qwen = bool(USE_QWEN_MODEL)
             if self.use_qwen:
                 self.qwen_model = get_model()
@@ -31,17 +34,22 @@ class SQLAgent:
             self.use_qwen = False
 
         logger.info(
-            f"USE_QWEN_MODEL={getattr(self, 'use_qwen', False)} | qwen_model_is_none={self.qwen_model is None}")
+            f"USE_QWEN_MODEL={getattr(self, 'use_qwen', False)} | "
+            f"qwen_model_is_none={self.qwen_model is None}"
+        )
 
     def generate_sql(self, user_query, active_table=None):
-        """Generate SQL query using Qwen first, then GPT fallback"""
+        """
+        Generate SQL query from natural language:
+        1) Try local Qwen Text2SQL model
+        2) If invalid / error, fall back to GPT
+        """
         try:
             logger.info(f"🔍 SQL_AGENT: Generating SQL for: {user_query}")
 
-            # Resolve table name
+            # --- Resolve active table ---
             if not active_table:
-                active_info = self.dataset_manager.get_active_dataset(
-                    force_refresh=True)
+                active_info = self.dataset_manager.get_active_dataset(force_refresh=True)
                 active_table = (
                     active_info["table_name"]
                     if isinstance(active_info, dict) and active_info.get("table_name")
@@ -383,6 +391,7 @@ class SQLAgent:
             if self.qwen_model and self.use_qwen:
                 try:
                     logger.info("🚀 Trying Qwen Text2SQL model first...")
+
                     messages = self.qwen_prompt_builder(
                         question=user_query,
                         db_schema=f"{schema_info}\n{schema_context}",
@@ -401,11 +410,13 @@ class SQLAgent:
                     ).strip()
 
                     logger.info(
-                        f"🧾 Qwen raw output: {content[:200]}{'...' if len(content) > 200 else ''}")
+                        f"🧾 Qwen raw output: "
+                        f"{content[:200]}{'...' if len(content) > 200 else ''}"
+                    )
 
                     sql_query = self._clean_sql(content)
 
-                    # If the model added extra text, extract the first SELECT ... ;
+                    # If the model added explanation text, grab the first SELECT ... ;
                     if not sql_query.lower().startswith("select"):
                         m = re.search(r"(?is)\bselect\b.*?;", sql_query)
                         if m:
@@ -419,16 +430,19 @@ class SQLAgent:
                         return validated_sql, None
                     else:
                         logger.warning(
-                            "⚠️ Qwen produced invalid SQL; will fall back to GPT.")
+                            "⚠️ Qwen produced invalid SQL; will fall back to GPT."
+                        )
 
                 except Exception as qe:
                     logger.warning(
-                        f"⚠️ Qwen exception; falling back to GPT. Details: {qe}")
+                        f"⚠️ Qwen exception; falling back to GPT. Details: {qe}"
+                    )
 
             # ---------- GPT FALLBACK ----------
             logger.info("💬 Using GPT fallback...")
             sql_query = self._generate_sql_with_gpt(
-                user_query, active_table, schema_info, schema_context)
+                user_query, active_table, schema_info, schema_context
+            )
             validated_sql = self._validate_sql(sql_query)
             if validated_sql:
                 return validated_sql, None
@@ -439,16 +453,22 @@ class SQLAgent:
             logger.error(f"❌ SQL_AGENT Error: {e}")
             return None, f"Error generating SQL: {str(e)}"
 
+    # -------------------------------------------------------------------------
+    # GPT fallback path
+    # -------------------------------------------------------------------------
     def _generate_sql_with_gpt(self, user_query, active_table, schema_info, schema_context):
-        """Existing GPT-based SQL generation"""
+        """GPT-based SQL generation used only as fallback."""
         system_prompt = f"""
-        You are an expert SQL query generator. Convert natural language to PostgreSQL queries.
+        You are an expert SQL query generator. Convert natural language to PostgreSQL SELECT queries.
         Active table: {active_table}
         Schema:
         {schema_info}
         Context:
         {schema_context}
-        Rules: SELECT only. No updates/deletes. Output SQL only.
+        Rules:
+        - Only SELECT queries (read-only).
+        - Do NOT modify or delete data.
+        - Output ONLY the SQL (no markdown).
         """
         response = self.client.chat.completions.create(
             model="gpt-3.5-turbo",
@@ -462,7 +482,11 @@ class SQLAgent:
         sql_query = response.choices[0].message.content.strip()
         return self._clean_sql(sql_query)
 
+    # -------------------------------------------------------------------------
+    # Helpers
+    # -------------------------------------------------------------------------
     def _clean_sql(self, sql_query: str) -> str:
+        """Strip markdown fences and whitespace from model output."""
         if not sql_query:
             return ""
         s = sql_query.strip()
@@ -472,7 +496,7 @@ class SQLAgent:
         return s.strip()
 
     def _get_table_schema(self, table_name):
-        """Get table schema information"""
+        """Get table schema information from information_schema."""
         try:
             query = f"""
                 SELECT column_name, data_type
@@ -489,14 +513,16 @@ class SQLAgent:
             logger.error(f"Schema retrieval error: {e}")
             return f"Table: {table_name} (schema unavailable)"
 
-    def _validate_sql(self, sql_query):
-        """Basic SQL validation"""
+    def _validate_sql(self, sql_query: str):
+        """Basic SQL safety/shape validation."""
         if not sql_query:
             return None
-        if not sql_query.strip().upper().startswith('SELECT'):
+
+        if not sql_query.strip().upper().startswith("SELECT"):
             return None
-        dangerous_keywords = ['DROP', 'DELETE',
-                              'UPDATE', 'INSERT', 'ALTER', 'CREATE']
+
+        dangerous_keywords = ['DROP', 'DELETE', 'UPDATE', 'INSERT', 'ALTER', 'CREATE']
         if any(keyword in sql_query.upper() for keyword in dangerous_keywords):
             return None
+
         return sql_query
