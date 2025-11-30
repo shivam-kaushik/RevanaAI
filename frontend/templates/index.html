@@ -859,7 +859,149 @@
                     // Add analysis response
                     addMessage(result.response, 'assistant');
                     
-                    // Display charts if available
+                    // Debug: Log if plot_html is present
+                    console.log('Result contains plot_html:', !!result.plot_html);
+                    if (result.plot_html) {
+                        console.log('Plot HTML length:', result.plot_html.length);
+                        console.log('Plot HTML preview:', result.plot_html.substring(0, 200));
+                    }
+                    
+                    // Display Plotly chart if available (for anomaly detection)
+                    if (result.plot_html) {
+                        // Ensure Plotly is loaded
+                        if (typeof Plotly === 'undefined') {
+                            console.log('Loading Plotly from CDN...');
+                            const plotlyScript = document.createElement('script');
+                            plotlyScript.src = 'https://cdn.plot.ly/plotly-2.35.2.min.js';
+                            plotlyScript.onload = () => {
+                                console.log('Plotly loaded, rendering chart...');
+                                renderPlotlyChart(result.plot_html, result.grouped, result.statistics);
+                            };
+                            document.head.appendChild(plotlyScript);
+                        } else {
+                            renderPlotlyChart(result.plot_html, result.grouped, result.statistics);
+                        }
+                    }
+                    
+                    // Helper function to render Plotly chart
+                    function renderPlotlyChart(htmlString, isGrouped=false, stats=null) {
+                        try {
+                            // Extract Plotly.newPlot call from the HTML
+                            const plotlyCallMatch = htmlString.match(/Plotly\.newPlot\([^)]*\)/s);
+                            
+                            if (!plotlyCallMatch) {
+                                throw new Error('Could not find Plotly.newPlot call in HTML');
+                            }
+                            
+                            const plotlyCall = plotlyCallMatch[0];
+                            
+                            // Extract the div ID
+                            const divIdMatch = plotlyCall.match(/Plotly\.newPlot\(\s*["']([^"']+)["']/);
+                            if (!divIdMatch) {
+                                throw new Error('Could not extract div ID');
+                            }
+                            
+                            // Extract data array - find the opening bracket and count brackets to find the closing one
+                            const dataStartIndex = plotlyCall.indexOf('[');
+                            if (dataStartIndex === -1) {
+                                throw new Error('Could not find data array');
+                            }
+                            
+                            let bracketCount = 0;
+                            let dataEndIndex = -1;
+                            for (let i = dataStartIndex; i < plotlyCall.length; i++) {
+                                if (plotlyCall[i] === '[') bracketCount++;
+                                if (plotlyCall[i] === ']') {
+                                    bracketCount--;
+                                    if (bracketCount === 0) {
+                                        dataEndIndex = i;
+                                        break;
+                                    }
+                                }
+                            }
+                            
+                            if (dataEndIndex === -1) {
+                                throw new Error('Could not find end of data array');
+                            }
+                            
+                            const dataString = plotlyCall.substring(dataStartIndex, dataEndIndex + 1);
+                            
+                            // Extract layout object - find the opening brace after the data array
+                            const layoutStartIndex = plotlyCall.indexOf('{', dataEndIndex);
+                            if (layoutStartIndex === -1) {
+                                throw new Error('Could not find layout object');
+                            }
+                            
+                            let braceCount = 0;
+                            let layoutEndIndex = -1;
+                            for (let i = layoutStartIndex; i < plotlyCall.length; i++) {
+                                if (plotlyCall[i] === '{') braceCount++;
+                                if (plotlyCall[i] === '}') {
+                                    braceCount--;
+                                    if (braceCount === 0) {
+                                        layoutEndIndex = i;
+                                        break;
+                                    }
+                                }
+                            }
+                            
+                            if (layoutEndIndex === -1) {
+                                throw new Error('Could not find end of layout object');
+                            }
+                            
+                            const layoutString = plotlyCall.substring(layoutStartIndex, layoutEndIndex + 1);
+                            
+                            // Parse the JSON
+                            const data = JSON.parse(dataString);
+                            const layout = JSON.parse(layoutString);
+                            const divId = 'plotly-chart-' + Date.now();
+                            
+                            // Create container
+                            const plotDiv = document.createElement('div');
+                            plotDiv.className = 'message assistant-message';
+                            let header = '<strong>📊 Visualization:</strong><br>';
+                            if (isGrouped && stats && stats.per_category) {
+                                header = '<strong>📊 Category Anomaly Visualization:</strong><br>';
+                                // Build a quick stats summary list
+                                const catStats = stats.per_category;
+                                let summaryHtml = '<div style="margin:6px 0 10px; font-size:12px; line-height:1.4;">';
+                                summaryHtml += '<em>Per-Category Anomalies:</em><br>';
+                                Object.keys(catStats).forEach(cat => {
+                                    const s = catStats[cat];
+                                    summaryHtml += `${cat}: ${s.anomalies_found} / ${s.total_points} (${(s.anomaly_rate*100).toFixed(1)}%)<br>`;
+                                });
+                                summaryHtml += '</div>';
+                                header += summaryHtml;
+                            }
+                            plotDiv.innerHTML = header;
+                            
+                            // Create Plotly div
+                            const chartDiv = document.createElement('div');
+                            chartDiv.id = divId;
+                            chartDiv.style.width = '100%';
+                            chartDiv.style.height = '500px';
+                            
+                            plotDiv.appendChild(chartDiv);
+                            chatMessages.appendChild(plotDiv);
+                            chatMessages.scrollTop = chatMessages.scrollHeight;
+                            
+                            // Render chart without toolbar (mode bar)
+                            Plotly.newPlot(divId, data, layout, {
+                                responsive: true,
+                                displayModeBar: false,
+                                displaylogo: false
+                            });
+                            console.log('✅ Plotly chart rendered successfully');
+                        } catch (error) {
+                            console.error('❌ Error rendering Plotly chart:', error);
+                            const errorDiv = document.createElement('div');
+                            errorDiv.className = 'message assistant-message';
+                            errorDiv.innerHTML = '<strong>📊 Visualization:</strong><br><p style="color: red;">Failed to render chart: ' + error.message + '</p>';
+                            chatMessages.appendChild(errorDiv);
+                        }
+                    }
+                    
+                    // Display charts if available (for regular visualizations)
                     if (result.charts && Object.keys(result.charts).length > 0) {
                         displayCharts(result.charts);
                     }

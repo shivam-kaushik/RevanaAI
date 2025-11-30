@@ -75,6 +75,10 @@ class FileProcessor:
             df = self.convert_date_columns(df)
             logger.info(f"✅ Date columns processed")
             
+            # Auto-detect and convert date columns
+            df = self.convert_date_columns(df)
+            logger.info(f"✅ Date columns processed")
+            
             # Generate table name
             table_name = self.generate_table_name(filename)
             
@@ -201,6 +205,32 @@ class FileProcessor:
         clean = "".join(c if c.isalnum() else "_" for c in str(col_name))
         clean = "_".join(filter(None, clean.split("_")))
         return clean.lower()
+    
+    def convert_date_columns(self, df):
+        """Auto-detect and convert date columns to datetime"""
+        for col in df.columns:
+            # Check if column name suggests it's a date
+            col_lower = col.lower()
+            if 'date' in col_lower or 'time' in col_lower:
+                try:
+                    df[col] = pd.to_datetime(df[col], errors='coerce')
+                    logger.info(f"✅ Converted column '{col}' to datetime")
+                except Exception as e:
+                    logger.warning(f"⚠️ Could not convert '{col}' to datetime: {e}")
+            # Also try to detect date-like string patterns
+            elif df[col].dtype == 'object':
+                try:
+                    # Try to parse a sample - if it works, convert the whole column
+                    sample = df[col].dropna().head(5)
+                    if len(sample) > 0:
+                        test_convert = pd.to_datetime(sample, errors='coerce')
+                        # If more than 80% successfully converted, it's likely a date column
+                        if test_convert.notna().sum() / len(sample) > 0.8:
+                            df[col] = pd.to_datetime(df[col], errors='coerce')
+                            logger.info(f"✅ Auto-detected and converted column '{col}' to datetime")
+                except:
+                    pass
+        return df
     
     def map_pandas_to_postgres_type(self, pandas_dtype):
         """Map pandas data types to PostgreSQL types"""
