@@ -1,21 +1,24 @@
 import os
 from dotenv import load_dotenv
+USE_QWEN_MODEL = True  # toggle on/off the embedded Text2SQL model
 
 load_dotenv()
 
+
 class Config:
     # Database
-    DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:Password1!@localhost:5432/Revana")
-    
+    DATABASE_URL = os.getenv(
+        "DATABASE_URL", "postgresql://postgres:Password1!@localhost:5432/Revana")
+
     # OpenAI
-    OPENAI_API_KEY = "test-api-key"  # Default for testing
+    OPENAI_API_KEY =  "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"  # Default for testing
     # Application
     HOST = os.getenv("HOST", "localhost")
     PORT = int(os.getenv("PORT", 8000))
     DEBUG = os.getenv("DEBUG", "True").lower() == "true"
-    
+
     # Vector DB
     VECTOR_DB_PATH = "./data/vector_db"
-    
+
     # Data paths
     DATA_PATH = "./data"
