@@ -149,6 +149,9 @@ class ChatResponse(BaseModel):
     clarification_question: str = ""
     has_dataset: bool = False
     charts: dict | None = None  # --> charts --> forecast_combined
+    plot_html: str | None = None  # For anomaly detection plots
+    grouped: bool = False  # Whether anomaly detection is grouped by category
+    statistics: dict | None = None  # Anomaly detection statistics
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -548,21 +551,38 @@ async def chat_endpoint(request: ChatRequest):
             charts = results.get("charts")
             response_data = results.get('data', {}) or {}
             agents_used = plan.get('required_agents', []) or ["SQL_AGENT", "INSIGHT_AGENT"]
+            
+            # Extract anomaly plot info for response
+            plot_html = results.get('plot_html')
+            grouped = results.get('grouped', False)
+            statistics = results.get('statistics')
         else:
             chat_response = await get_chatgpt_response(request.message, has_active_dataset)
             results = {'final_response': chat_response}
             response_data = {}
             agents_used = ["CHATGPT"]
+            plot_html = None
+            grouped = False
+            statistics = None
 
-        return ChatResponse(
-            response=results['final_response'],
-            data=response_data,
-            agents_used=agents_used,
-            execution_plan=plan.get('execution_plan', []),
-            needs_clarification=False,
-            has_dataset=has_active_dataset,
-            charts=charts 
-        )
+        response_dict = {
+            "response": results['final_response'],
+            "data": response_data,
+            "agents_used": agents_used,
+            "execution_plan": plan.get('execution_plan', []),
+            "needs_clarification": False,
+            "has_dataset": has_active_dataset,
+            "charts": charts
+        }
+        
+        # Add anomaly plot info if available
+        if plot_html:
+            response_dict["plot_html"] = plot_html
+            response_dict["grouped"] = grouped
+            if statistics:
+                response_dict["statistics"] = statistics
+        
+        return ChatResponse(**response_dict)
     except Exception as e:
         logger.error(f"Error in chat endpoint: {e}")
         try:
@@ -691,6 +711,19 @@ async def execute_agent_plan(plan, has_database_tables):
     # ----------------------------------------------------------------
     
     charts = {}
+    plot_html = None
+    grouped = False
+    statistics = None
+    
+    # Extract anomaly plot if available
+    if isinstance(anomalies, dict) and anomalies.get('plot_html'):
+        plot_html = anomalies['plot_html']
+        statistics = anomalies.get('statistics')
+        # Check if this is a grouped/category anomaly detection
+        if statistics and 'per_category' in statistics:
+            grouped = True
+    
+    # Extract forecast charts if available
     if isinstance(forecasts, dict):
         plots = forecasts.get("plots", {}) or {}
         
@@ -708,6 +741,7 @@ async def execute_agent_plan(plan, has_database_tables):
                 elif fs_path.startswith("/static/"):
                     fs_path = os.path.join(parent_dir, "frontend", fs_path[1:])
                 charts["forecast_combined"] = _png_to_base64(fs_path)
+    
     if data_results is not None:
         data_payload = {
             "sql_data": data_results.to_dict("records"),
@@ -716,12 +750,14 @@ async def execute_agent_plan(plan, has_database_tables):
         }
     else:
         data_payload = {"forecasts": forecasts} if forecasts else None
-        #print("Debug: data payload:", data_payload)
 
     return {
         "final_response": final_response,
         "data": data_payload,
         "charts": charts if charts else None,
+        "plot_html": plot_html,
+        "grouped": grouped,
+        "statistics": statistics
     }
     # ----------------------------------------------------------------
     
