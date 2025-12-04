@@ -1,0 +1,508 @@
+/* ===== Global Reset ===== */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+/* ===== Body & Layout ===== */
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    min-height: 100vh;
+    padding: 20px;
+}
+
+.container {
+    max-width: 900px;
+    margin: 0 auto;
+    background: white;
+    border-radius: 15px;
+    box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+    overflow: hidden;
+}
+
+/* ===== Header / Top Bar ===== */
+.header {
+    background: linear-gradient(135deg, #2c3e50, #34495e);
+    color: white;
+    padding: 20px 30px 30px 30px;
+}
+
+.header-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+}
+
+.header-title-block h1 {
+    font-size: 2.0em;
+    margin-bottom: 5px;
+}
+
+.header-title-block p {
+    opacity: 0.9;
+    font-size: 0.95em;
+}
+
+.header-subtitle-role {
+    font-size: 0.85em;
+    opacity: 0.85;
+}
+
+.header-user-block {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 0.9em;
+}
+
+.role-pill {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.15);
+    border: 1px solid rgba(255,255,255,0.3);
+    font-size: 0.8em;
+}
+
+.user-name {
+    opacity: 0.9;
+}
+
+.nav-link-btn {
+    padding: 6px 12px;
+    border-radius: 999px;
+    border: 1px solid rgba(255,255,255,0.6);
+    background: transparent;
+    color: white;
+    text-decoration: none;
+    font-size: 0.85em;
+    transition: background 0.2s ease, color 0.2s ease;
+}
+
+.nav-link-btn:hover {
+    background: white;
+    color: #2c3e50;
+}
+
+/* ===== Main Content Layout (single column) ===== */
+.main-content {
+    display: block;              /* no grid, single column */
+    padding: 30px;
+    min-height: 600px;
+}
+
+/* ===== Upload Section ===== */
+.upload-section {
+    background: #f8f9fa;
+    padding: 30px;
+    border-right: 1px solid #e9ecef;
+}
+
+.upload-area {
+    border: 3px dashed #667eea;
+    border-radius: 10px;
+    padding: 40px 20px;
+    text-align: center;
+    background: #f8f9fa;
+    transition: all 0.3s ease;
+    margin-bottom: 20px;
+    cursor: pointer;
+}
+
+.upload-area:hover {
+    border-color: #764ba2;
+    background: #e9ecef;
+}
+
+.upload-area.highlight {
+    border-color: #764ba2;
+    background: #e9ecef;
+}
+
+.upload-icon {
+    font-size: 3em;
+    color: #667eea;
+    margin-bottom: 15px;
+}
+
+.file-input {
+    display: none;
+}
+
+.upload-btn {
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    color: white;
+    border: none;
+    padding: 12px 30px;
+    border-radius: 25px;
+    cursor: pointer;
+    font-size: 1em;
+    transition: transform 0.2s ease;
+    margin: 10px 0;
+}
+
+.upload-btn:hover {
+    transform: translateY(-2px);
+}
+
+.upload-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+}
+
+/* ===== Status & Dataset Info ===== */
+.status-area {
+    margin-top: 20px;
+    padding: 15px;
+    border-radius: 8px;
+    background: white;
+    border-left: 4px solid #667eea;
+}
+
+.status-success {
+    border-left-color: #28a745;
+    background: #d4edda;
+    color: #155724;
+}
+
+.status-error {
+    border-left-color: #dc3545;
+    background: #f8d7da;
+    color: #721c24;
+}
+
+.status-info {
+    border-left-color: #17a2b8;
+    background: #d1ecf1;
+    color: #0c5460;
+}
+
+.dataset-info {
+    background: #e9ecef;
+    padding: 15px;
+    border-radius: 8px;
+    margin-top: 15px;
+    font-size: 0.9em;
+}
+
+/* ===== Dataset Management (Admin) ===== */
+.dataset-management {
+    background: #e9ecef;
+    padding: 15px;
+    border-radius: 8px;
+    margin-top: 15px;
+}
+
+.active-dataset {
+    background: white;
+    padding: 10px;
+    border-radius: 5px;
+    border-left: 4px solid #28a745;
+}
+
+.dataset-select {
+    border: 1px solid #ddd;
+    border-radius: 5px;
+}
+
+.dataset-item {
+    padding: 8px;
+    margin: 5px 0;
+    background: white;
+    border-radius: 5px;
+    border-left: 4px solid #007bff;
+    cursor: pointer;
+}
+
+.dataset-item:hover {
+    background: #f8f9fa;
+}
+
+.dataset-item.active {
+    border-left-color: #28a745;
+    background: #d4edda;
+}
+
+/* ===== Chat Section ===== */
+.chat-section {
+    padding: 30px;
+    display: flex;
+    flex-direction: column;
+}
+
+.chat-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+    background: #f8f9fa;
+    border-radius: 10px;
+    margin-bottom: 20px;
+    max-height: 500px;
+}
+
+.message {
+    margin-bottom: 15px;
+    padding: 15px;
+    border-radius: 10px;
+    max-width: 90%;
+}
+
+.user-message {
+    background: #667eea;
+    color: white;
+    margin-left: auto;
+}
+
+.assistant-message {
+    background: white;
+    border: 1px solid #e9ecef;
+    margin-right: auto;
+}
+
+.chat-input-area {
+    display: flex;
+    gap: 10px;
+}
+
+.chat-input {
+    flex: 1;
+    padding: 15px;
+    border: 2px solid #e9ecef;
+    border-radius: 25px;
+    font-size: 1em;
+    outline: none;
+    transition: border-color 0.3s ease;
+}
+
+.chat-input:focus {
+    border-color: #667eea;
+}
+
+.send-btn {
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    color: white;
+    border: none;
+    padding: 15px 25px;
+    border-radius: 25px;
+    cursor: pointer;
+    transition: transform 0.2s ease;
+}
+
+.send-btn:hover:not(:disabled) {
+    transform: translateY(-2px);
+}
+
+.send-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+/* ===== Tags / Indicators ===== */
+.agent-tag {
+    display: inline-block;
+    background: #764ba2;
+    color: white;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 0.8em;
+    margin-right: 5px;
+}
+
+.analysis-mode {
+    background: #e7f3ff;
+    border-left: 4px solid #1890ff;
+    padding: 10px;
+    margin: 10px 0;
+    border-radius: 4px;
+    font-size: 0.9em;
+}
+
+/* ===== Typing Indicator ===== */
+.typing-indicator {
+    display: inline-block;
+    padding: 10px 15px;
+    background: white;
+    border: 1px solid #e9ecef;
+    border-radius: 10px;
+    margin-bottom: 15px;
+}
+
+.typing-dots {
+    display: inline-block;
+}
+
+.typing-dots span {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #667eea;
+    margin: 0 2px;
+    animation: typing 1.4s infinite ease-in-out;
+}
+
+.typing-dots span:nth-child(1) { animation-delay: -0.32s; }
+.typing-dots span:nth-child(2) { animation-delay: -0.16s; }
+
+@keyframes typing {
+    0%, 80%, 100% { transform: scale(0); }
+    40% { transform: scale(1); }
+}
+
+/* ===== Charts ===== */
+.chart-container {
+    margin: 10px 0;
+    padding: 10px;
+    background: white;
+    border-radius: 8px;
+    border: 1px solid #e9ecef;
+}
+
+.chart-title {
+    font-weight: bold;
+    margin-bottom: 10px;
+    color: #333;
+}
+
+.chart-image {
+    max-width: 100%;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    margin: 5px 0;
+}
+
+/* ===== Login / Auth Pages ===== */
+.auth-wrapper {
+    max-width: 400px;
+    margin: 60px auto;
+    padding: 30px;
+    background: white;
+    border-radius: 15px;
+    box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+}
+
+.auth-title {
+    font-size: 1.6em;
+    margin-bottom: 10px;
+    text-align: center;
+}
+
+.auth-subtitle {
+    font-size: 0.9em;
+    opacity: 0.8;
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+.auth-form-group {
+    margin-bottom: 15px;
+}
+
+.auth-form-group label {
+    display: block;
+    margin-bottom: 5px;
+    font-size: 0.9em;
+}
+
+.auth-form-group input {
+    width: 100%;
+    padding: 10px;
+    border-radius: 8px;
+    border: 1px solid #ccc;
+    font-size: 0.95em;
+}
+
+.auth-error {
+    margin-bottom: 10px;
+    padding: 10px;
+    background: #f8d7da;
+    color: #721c24;
+    border-radius: 8px;
+    font-size: 0.9em;
+}
+
+.auth-role-hint {
+    font-size: 0.8em;
+    opacity: 0.75;
+    margin-top: 10px;
+    line-height: 1.4;
+}
+
+/* ===== User Management Card ===== */
+.user-management-card {
+    margin-top: 20px;                /* space below System Status – same feel as other cards */
+    padding: 16px 18px;
+    background: #f8f9fb;
+    border-radius: 10px;
+    border: 1px solid #e1e4ea;
+}
+
+.user-management-card h4 {
+    margin-bottom: 12px;             /* space between title and first field */
+    font-size: 0.95rem;
+}
+
+/* Generic form rows inside the card */
+.form-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 12px;
+    font-size: 0.9rem;
+}
+
+.form-row label {
+    font-weight: 500;
+}
+
+/* Rounded input style */
+.text-input {
+    width: 100%;
+    padding: 8px 12px;
+    border-radius: 999px;            /* pill / rounded input */
+    border: 1px solid #d0d5dd;
+    font-size: 0.9rem;
+    outline: none;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.text-input:focus {
+    border-color: #667eea;
+    box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
+}
+
+/* Make the role dropdown match other inputs */
+.user-management-card #newRole {
+    width: 100%;
+    padding: 8px 12px;
+    border-radius: 999px;
+    border: 1px solid #d0d5dd;
+    font-size: 0.9rem;
+}
+
+/* Status text under Create User button */
+.small-status-text {
+    font-size: 0.8rem;
+    color: #555;
+}
+
+/* ===== Responsive ===== */
+@media (max-width: 768px) {
+    .main-content {
+        grid-template-columns: 1fr;
+    }
+    .upload-section {
+        border-right: none;
+        border-bottom: 1px solid #e9ecef;
+    }
+
+    .header-top {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+}
