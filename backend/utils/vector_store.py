@@ -14,7 +14,7 @@ class PostgresVectorStore:
         self.db_config = {
             'dbname': 'Revana',
             'user': 'postgres',
-            'password': 'Password1!',  # Update with your actual password
+            'password': 'Adilet123!',  # Update with your actual password
             'host': 'localhost',
             'port': '5432'
         }

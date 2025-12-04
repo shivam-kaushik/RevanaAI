@@ -15,7 +15,7 @@ class FileProcessor:
         self.db_config = {
             'dbname': 'Revana',
             'user': 'postgres',
-            'password': 'Password1!',
+            'password': '',
             'host': 'localhost',
             'port': '5432'
         }
