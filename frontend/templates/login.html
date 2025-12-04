@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login – Agentic Sales Assistant</title>
+    <link rel="stylesheet" href="/static/css/main.css">
+</head>
+<body>
+    <div class="auth-wrapper">
+        <h1 class="auth-title">Sign in</h1>
+        <p class="auth-subtitle">Please enter your login details</p>
+
+        {% if error %}
+        <div class="auth-error">
+            {{ error }}
+        </div>
+        {% endif %}
+
+        <form method="post" action="/login">
+            <div class="auth-form-group">
+                <label for="username">Username</label>
+                <input id="username" name="username" type="text" required autofocus placeholder="Enter username">
+            </div>
+
+            <div class="auth-form-group">
+                <label for="password">Password</label>
+                <input id="password" name="password" type="password" required placeholder="Enter password">
+            </div>
+
+            <button type="submit" class="upload-btn" style="width: 100%; margin-top: 10px;">
+                Login
+            </button>
+
+            <!-- <div class="auth-role-hint">
+                <strong>Demo accounts:</strong><br>
+                • admin / admin123 – full access<br>
+                • sales / sales123 – chat only<br>
+                • customer / customer123 – chat only
+            </div> -->
+        </form>
+    </div>
+</body>
+</html>
