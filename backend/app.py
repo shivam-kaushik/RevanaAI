@@ -2,24 +2,83 @@ import sys
 import os
 import logging
 import base64
+import hashlib
 from openai import OpenAI
 
-# Fix Python path
-current_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir = os.path.dirname(current_dir)
-if parent_dir not in sys.path:
-    sys.path.insert(0, parent_dir)
+# ---------------------------
+# NEW: SECRET KEY
+# ---------------------------
+# This key is used for cookie signing + session auth
+SECRET_KEY = "e3f0bd2e6f8c4c7bb540e3dac50162a7d5cb1a12f8c2c6f7d5b4aef01dd91b95"
 
 # FastAPI deps
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, Request, HTTPException, UploadFile, File, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, HTMLResponse
+from fastapi.responses import FileResponse, JSONResponse, HTMLResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
+
+# NEW — Session Middleware (for login cookies)
+from starlette.middleware.sessions import SessionMiddleware
+
+# Template engine setup
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+templates_dir = os.path.join(parent_dir, "frontend", "templates")
+
+templates = Jinja2Templates(directory=templates_dir)
+
+# ============================================================
+#  ROLE SYSTEM
+# ============================================================
+
+# Simple in-memory user list (for demo UI)
+USERS = {
+    "admin": {"password": "admin123", "role": "admin"},
+    "sales": {"password": "sales123", "role": "sales"},
+    "customer": {"password": "customer123", "role": "customer"},
+}
+
+ALLOWED_ROLES = {"admin", "sales", "customer"}
+
+# --------------- Helper: get current user from session cookie
+def get_current_user(request: Request):
+    return request.session.get("user")
+
+# --------------- Helper: require login
+def login_required(func):
+    async def wrapper(*args, **kwargs):
+        request: Request = args[0]
+        user = get_current_user(request)
+        if not user:
+            return RedirectResponse(url="/login", status_code=302)
+        return await func(*args, **kwargs)
+    return wrapper
+
+# --------------- Helper: require admin role
+async def admin_required(request: Request):
+    """
+    Dependency used by admin-only routes.
+
+    Expects that the login system stores a dict like:
+      request.session["user"] = {"username": "...", "role": "admin" | "sales" | "customer"}
+    """
+    user = None
+    if hasattr(request, "session"):
+        user = request.session.get("user")
+
+    if not user or user.get("role") != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required"
+        )
 
 # --- NEW: imports needed for ForecastAgent wiring ---
 from sqlalchemy import create_engine, text
 from langchain_openai import ChatOpenAI
 from backend.agents.forecast_agent import ForecastAgent, ForecastAgentConfig
+# NEW: password hashing
+from passlib.context import CryptContext
 # ---------------------------------------------------
 
 # Import our agents and utilities
@@ -28,7 +87,7 @@ from backend.agents.sql_agent import SQLAgent
 from backend.agents.analysis_agent import AnalysisAgent
 from backend.agents.anomaly_agent import AnomalyAgent
 from backend.agents.vector_agent import VectorAgent
-from backend.agents.feedback_agent import FeedbackAgent  # <-- NEW
+from backend.agents.feedback_agent import FeedbackAgent
 
 from backend.utils.file_processor import FileProcessor
 from backend.utils.vector_db import vector_db
@@ -42,6 +101,9 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Agentic Sales Assistant", version="2.0.0")
 
+# Add session middleware (REQUIRED for login system)
+app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
+
 # CORS
 app.add_middleware(
     CORSMiddleware,
@@ -50,6 +112,25 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+def hash_password(password: str) -> str:
+    """Hash password with random salt (PBKDF2)."""
+    salt = os.urandom(16)
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 100_000)
+    return salt.hex() + ":" + dk.hex()
+
+def verify_password(password: str, stored: str) -> bool:
+    """Verify password vs stored salt:hash string."""
+    try:
+        salt_hex, hash_hex = stored.split(":")
+        salt = bytes.fromhex(salt_hex)
+        expected = bytes.fromhex(hash_hex)
+        dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 100_000)
+        return dk == expected
+    except Exception:
+        return False
 
 # ---------------- helper to build schema text ----------------
 def build_schema_text(engine, active_table: str) -> str:
@@ -92,7 +173,7 @@ file_processor = FileProcessor()
 openai_client = OpenAI(api_key=Config.OPENAI_API_KEY)
 vector_agent = VectorAgent()
 dataset_manager = DatasetManager()
-feedback_agent = FeedbackAgent()  # <-- NEW
+feedback_agent = FeedbackAgent()
 
 # ---------------- ForecastAgent wiring ----------------
 DATABASE_URL = os.getenv("DATABASE_URL", getattr(Config, "DATABASE_URL", None))
@@ -100,8 +181,34 @@ if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL is not set (env or Config)")
 
 _engine = create_engine(DATABASE_URL, future=True)
+
+def ensure_users_table():
+    """Create revana_users table if it doesn't exist + seed default admin."""
+    with _engine.begin() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS revana_users (
+                id SERIAL PRIMARY KEY,
+                username TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                role TEXT NOT NULL CHECK (role IN ('admin','sales','customer'))
+            );
+        """))
+
+        # Seed default admin once if table is empty
+        count = conn.execute(text("SELECT COUNT(*) FROM revana_users")).scalar() or 0
+        if count == 0:
+            admin_hash = hash_password("admin123")
+            conn.execute(
+                text("""
+                    INSERT INTO revana_users (username, password_hash, role)
+                    VALUES (:u, :p, :r)
+                """),
+                {"u": "admin", "p": admin_hash, "r": "admin"},
+            )
+            logger.info("👑 Seeded default admin user 'admin' / 'admin123'")
+
 active = dataset_manager.get_active_dataset(force_refresh=True)
-active_table = active["table_name"] if active else "revana_online_retail_clean_..."
+active_table = active["table_name"] if active else "revana_online_retail_clean_..."  # fallback
 SCHEMA_TEXT = build_schema_text(_engine, active_table)
 
 FC_LLM = ChatOpenAI(
@@ -110,6 +217,7 @@ FC_LLM = ChatOpenAI(
     api_key=Config.OPENAI_API_KEY,
 )
 
+# Ensure a place for charts
 FORECAST_STATIC_DIR = os.path.join(parent_dir, "frontend", "static", "forecast")
 print("DEBUG: FORECAST STATIC DIR", FORECAST_STATIC_DIR)
 os.makedirs(FORECAST_STATIC_DIR, exist_ok=True)
@@ -146,36 +254,104 @@ class ChatResponse(BaseModel):
     charts: dict | None = None
     interaction_id: int | None = None   # <-- NEW
 
+class CreateUserRequest(BaseModel):
+    username: str
+    password: str
+    role: str
+    
 class FeedbackRequest(BaseModel):       # <-- NEW
     interaction_id: int
     rating: int
     comment: str | None = None
 
+# ============================================================
+# LOGIN + LOGOUT + UNAUTHORIZED + ROOT ENDPOINTS
+# ============================================================
 
-@app.get("/", response_class=HTMLResponse)
-async def root():
+@app.get("/login")
+async def login_page(request: Request):
+    """Render login page"""
+    return templates.TemplateResponse("login.html", {"request": request, "error": None})
+
+@app.post("/login")
+async def login_submit(request: Request):
+    # Make sure table exists before querying
+    ensure_users_table()
+
+    form = await request.form()
+    username = form.get("username", "").strip()
+    password = form.get("password", "").strip()
+
+    db_user = None
+
+    # 1) Try database users
     try:
-        frontend_path = os.path.join(parent_dir, 'frontend', 'templates', 'index.html')
-        if os.path.exists(frontend_path):
-            return FileResponse(frontend_path)
-    except:
-        pass
+        with _engine.connect() as conn:
+            row = conn.execute(
+                text("""
+                    SELECT username, password_hash, role
+                    FROM revana_users
+                    WHERE username = :u
+                """),
+                {"u": username},
+            ).mappings().first()
 
-    html_content = """
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Agentic Sales Assistant</title>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    </head>
-    <body>
-        <h1>Agentic Sales Assistant</h1>
-        <p>Please use the main application interface.</p>
-    </body>
-    </html>
+        if row and verify_password(password, row["password_hash"]):
+            db_user = {"username": row["username"], "role": row["role"]}
+    except Exception as e:
+        logger.error(f"Login DB error: {e}")
+
+    if db_user:
+        request.session["user"] = db_user
+        return RedirectResponse("/app", status_code=302)
+
+    # 2) Fallback to in-memory USERS dict (optional)
+    user_rec = USERS.get(username)
+    if user_rec and user_rec["password"] == password:
+        request.session["user"] = {"username": username, "role": user_rec["role"]}
+        return RedirectResponse("/app", status_code=302)
+
+    return templates.TemplateResponse(
+        "login.html",
+        {"request": request, "error": "Invalid username or password"},
+    )
+
+@app.get("/logout")
+async def logout(request: Request):
+    """Destroy session"""
+    request.session.clear()
+    return RedirectResponse("/login", status_code=302)
+
+@app.get("/unauthorized")
+async def unauthorized(request: Request):
+    """Unauthorized page"""
+    return templates.TemplateResponse("unauthorized.html", {"request": request})
+
+@app.get("/", include_in_schema=False)
+async def root(request: Request):
     """
-    return HTMLResponse(content=html_content)
+    Always start at login when hitting the root URL.
+    Also clear any leftover session for safety.
+    """
+    request.session.clear()
+    return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.get("/app", response_class=HTMLResponse)
+async def app_home(request: Request):
+    """
+    Main assistant UI – only for logged-in users.
+    """
+    user = request.session.get("user")
+    if not user:
+        # No user in session? Force login.
+        return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+
+    role = user.get("role")
+    return templates.TemplateResponse(
+        "index.html",
+        {"request": request, "role": role, "user": user}
+    )
 
 @app.get("/health")
 async def health_check():
@@ -326,6 +502,46 @@ async def get_active_dataset():
     except Exception as e:
         logger.error(f"Error getting active dataset: {e}")
         return {"success": False, "error": str(e)}
+    
+@app.post("/admin/users", dependencies=[Depends(admin_required)])
+async def create_user(payload: CreateUserRequest):
+    # Ensure table is present (safe & idempotent)
+    ensure_users_table()
+
+    username = payload.username.strip()
+    password = payload.password.strip()
+    role     = payload.role.strip().lower()
+
+    if not username or not password:
+        return {"success": False, "error": "Username and password are required"}
+
+    if role not in ("admin", "sales", "customer"):
+        return {"success": False, "error": "Invalid role"}
+
+    try:
+        with _engine.begin() as conn:
+            # check if username exists
+            existing = conn.execute(
+                text("SELECT 1 FROM revana_users WHERE username = :u"),
+                {"u": username},
+            ).first()
+
+            if existing:
+                return {"success": False, "error": "Username already exists"}
+
+            pw_hash = hash_password(password)
+            conn.execute(
+                text("""
+                    INSERT INTO revana_users (username, password_hash, role)
+                    VALUES (:u, :p, :r)
+                """),
+                {"u": username, "p": pw_hash, "r": role},
+            )
+
+        return {"success": True, "message": f"User '{username}' created successfully"}
+    except Exception as e:
+        logger.error(f"Create user error: {e}")
+        return {"success": False, "error": f"Failed to create user: {str(e)}"}
 
 @app.get("/table/{table_name}")
 async def get_table_info(table_name: str):

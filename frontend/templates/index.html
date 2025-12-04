@@ -678,7 +678,7 @@
                 removeTypingIndicator(typingId);
 
                 if (result.success) {
-                    addMessage(result.response, 'assistant');
+                    addMessage(result.response, 'assistant', result);
 
                     if (result.charts && Object.keys(result.charts).length > 0) {
                         displayCharts(result.charts);

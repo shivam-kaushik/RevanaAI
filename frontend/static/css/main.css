@@ -506,3 +506,41 @@ body {
         gap: 8px;
     }
 }
+
+/* ===== Feedback Widget ===== */
+.feedback-widget {
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px dashed #e0e0e0;
+    font-size: 0.9em;
+    color: #444;
+}
+
+.feedback-title {
+    margin-bottom: 4px;
+}
+
+.feedback-stars span {
+    cursor: pointer;
+    font-size: 1.3em;
+    color: #ccc;
+    margin-right: 3px;
+    transition: color 0.15s ease;
+}
+
+.feedback-stars span.selected {
+    color: #f5b301;
+}
+
+.feedback-status {
+    margin-top: 4px;
+    font-size: 0.8em;
+}
+
+.feedback-status.success {
+    color: #28a745;
+}
+
+.feedback-status.error {
+    color: #dc3545;
+}
