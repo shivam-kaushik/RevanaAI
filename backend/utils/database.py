@@ -13,7 +13,7 @@ class DatabaseManager:
         self.db_config = {
             'dbname': 'Revana',
             'user': 'postgres',
-            'password': 'Password1!',
+            'password': 'Adilet123!',
             'host': 'localhost',
             'port': '5432'
         }

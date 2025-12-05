@@ -15,7 +15,7 @@ class FileProcessor:
         self.db_config = {
             'dbname': 'Revana',
             'user': 'postgres',
-            'password': 'Password1!',
+            'password': 'Adilet123!',
             'host': 'localhost',
             'port': '5432'
         }
@@ -209,7 +209,7 @@ class FileProcessor:
     def convert_date_columns(self, df):
         """Auto-detect and convert date columns to datetime"""
         for col in df.columns:
-            # Check if column name suggests it's a date
+        # Check if column name suggests it's a date
             col_lower = col.lower()
             if 'date' in col_lower or 'time' in col_lower:
                 try:

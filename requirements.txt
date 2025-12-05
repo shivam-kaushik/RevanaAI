@@ -4,6 +4,8 @@ uvicorn
 python-multipart
 python-dotenv
 requests
+itsdangerous>=2.2.0
+passlib[bcrypt]
 
 # --- LangChain & OpenAI Stack ---
 langchain

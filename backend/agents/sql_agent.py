@@ -91,11 +91,13 @@ class SQLAgent:
                     return cols
                 except Exception:
                     return []
+
             
             # Helper: detect date/time column and its data type
             def _get_date_column_info():
                 cols = _get_table_columns()
                 column_names = [c['column_name'] for c in cols]
+
                 
                 # Preferred date column names
                 date_keywords = ['date', 'invoicedate', 'orderdate', 'transactiondate', 'timestamp', 'time']
@@ -110,17 +112,17 @@ class SQLAgent:
                 for col_info in cols:
                     if 'timestamp' in col_info['data_type'].lower() or 'date' in col_info['data_type'].lower():
                         return {'name': col_info['column_name'], 'type': col_info['data_type']}
-                
+
                 return {'name': 'date', 'type': 'unknown'}  # ultimate fallback
-            
+
             # Helper: get SQL expression to convert column to DATE based on its type
             def _get_date_cast_expr(col_name, col_type):
                 col_type_lower = col_type.lower()
-                
+
                 # If already a date/timestamp type, just cast it
                 if 'timestamp' in col_type_lower or 'date' in col_type_lower:
                     return f"CAST({col_name} AS DATE)"
-                
+
                 # If it's text/varchar/character varying, detect the format by sampling
                 if any(t in col_type_lower for t in ['text', 'varchar', 'character varying', 'char']):
                     # Sample a few values to detect format
@@ -129,6 +131,7 @@ class SQLAgent:
                         result = db_manager.execute_query_dict(sample_query)
                         if result and len(result) > 0:
                             sample_value = str(result[0][col_name])
+
                             
                             # Detect format based on sample
                             if '/' in sample_value:
@@ -152,33 +155,33 @@ class SQLAgent:
                                         return f"TO_DATE({col_name}, 'DD-MM-YYYY')"
                     except Exception as e:
                         logger.warning(f"⚠️ Could not detect date format, using default: {e}")
-                    
+
                     # Fallback to MM/DD/YYYY
                     return f"TO_DATE({col_name}, 'MM/DD/YYYY')"
-                
+
                 # Default fallback
                 return f"CAST({col_name} AS DATE)"
-            
+
             # Helper: detect value/amount column
             def _get_value_column():
                 cols = _get_table_columns()
                 column_names = [c['column_name'] for c in cols]
-                
+
                 # Preferred value column names in priority order
                 value_keywords = ['total_amount', 'totalamount', 'amount', 'total', 'quantity', 'qty', 'unitprice', 'price', 'revenue', 'sales', 'value']
                 for keyword in value_keywords:
                     for col in column_names:
                         if keyword == col.lower().replace('_', '').replace(' ', ''):
                             return col
-                
+
                 # Fallback: find first numeric column
                 for col_info in cols:
                     data_type = col_info['data_type'].lower()
                     if any(t in data_type for t in ['int', 'numeric', 'decimal', 'float', 'double', 'real']):
                         return col_info['column_name']
-                
+
                 return 'total_amount'  # ultimate fallback
-            
+
             # Helper: pick best grouping column present in the table
             def _get_group_column():
                 cols = _get_table_columns()
@@ -200,22 +203,23 @@ class SQLAgent:
                 # Fallback: None (no grouping available)
                 return None
 
+            # ---------- ANOMALY / AGGREGATION FAST PATH ----------
             if is_anomaly:
                 logger.info("🚨 Detected anomaly query - generating monthly aggregation SQL")
-                
+
                 # Detect column names and types from schema
                 date_col_info = _get_date_column_info()
                 date_col = date_col_info['name']
                 date_type = date_col_info['type']
                 value_col = _get_value_column()
-                
+
                 # Get proper date casting expression
                 date_cast = _get_date_cast_expr(date_col, date_type)
-                
+
                 logger.info(f"📅 Detected date column: {date_col} (type: {date_type})")
                 logger.info(f"💰 Detected value column: {value_col}")
                 logger.info(f"🔧 Date conversion: {date_cast}")
-                
+
                 # Grouped anomaly detection (category/product/etc.)
                 if wants_group:
                     group_col = _get_group_column()
@@ -223,6 +227,7 @@ class SQLAgent:
                         logger.info("ℹ️ Grouping requested but no suitable column found; falling back to non-grouped")
                     else:
                         logger.info(f"🧩 Detected grouping dimension for anomaly query: {group_col}")
+
                     # Timeframe filters for category grouping
                     if group_col and ("last 3 months" in uq_lower or "last three months" in uq_lower):
                         logger.info("🗓️ Applying 'last 3 months' timeframe with category grouping")
@@ -258,7 +263,7 @@ class SQLAgent:
                         logger.info("✅ Generated category anomaly SQL for last 3 months")
                         logger.info(f"🔍 SQL Query: {sql}")
                         return sql, None
-                    
+
                     if group_col and ("last 6 months" in uq_lower or "last six months" in uq_lower):
                         logger.info("🗓️ Applying 'last 6 months' timeframe with category grouping")
                         sql = f"""
@@ -293,7 +298,7 @@ class SQLAgent:
                         logger.info("✅ Generated category anomaly SQL for last 6 months")
                         logger.info(f"🔍 SQL Query: {sql}")
                         return sql, None
-                    
+
                     if group_col and ("last quarter" in uq_lower or "previous quarter" in uq_lower):
                         logger.info("🗓️ Applying 'last quarter' timeframe with category grouping (previous completed quarter)")
                         sql = f"""
@@ -330,7 +335,7 @@ class SQLAgent:
                         logger.info("✅ Generated category anomaly SQL for last quarter")
                         logger.info(f"🔍 SQL Query: {sql}")
                         return sql, None
-                    
+
                     if group_col:
                         # Full-range grouped monthly aggregation
                         sql = f"""
@@ -391,7 +396,7 @@ class SQLAgent:
                     logger.info("✅ Generated anomaly detection SQL for last 3 months")
                     logger.info(f"🔍 SQL Query: {sql}")
                     return sql, None
-                
+
                 if "last 6 months" in uq_lower or "last six months" in uq_lower:
                     logger.info("🗓️ Applying 'last 6 months' timeframe filter")
                     sql = f"""
@@ -463,7 +468,7 @@ class SQLAgent:
                     logger.info("✅ Generated anomaly detection SQL for last quarter")
                     logger.info(f"🔍 SQL Query: {sql}")
                     return sql, None
-                
+
                 # Default: full-range monthly aggregation
                 sql = f"""
                 WITH monthly_sales AS (
@@ -521,14 +526,13 @@ class SQLAgent:
 
                     sql_query = self._clean_sql(content)
 
-                    # If the model added explanation text, grab the first SELECT ... ;
-                    if not sql_query.lower().startswith("select"):
-                        m = re.search(r"(?is)\bselect\b.*?;", sql_query)
-                        if m:
-                            sql_query = m.group(0).strip()
+                    # Apply your patches/fixes from your branch
+                    sql_query = self._fix_date_format_issues(sql_query)
+                    sql_query = self._apply_sql_patches(sql_query)
 
                     logger.info(f"🧪 Qwen cleaned candidate: {sql_query}")
 
+                    logger.info(f"🔎 Before validation (Qwen): {sql_query}")
                     validated_sql = self._validate_sql(sql_query)
                     if validated_sql:
                         logger.info("✅ Qwen succeeded (using model output).")
@@ -548,6 +552,12 @@ class SQLAgent:
             sql_query = self._generate_sql_with_gpt(
                 user_query, active_table, schema_info, schema_context
             )
+
+            # Apply your fixes/patches before validation
+            sql_query = self._fix_date_format_issues(sql_query)
+            sql_query = self._apply_sql_patches(sql_query)
+
+            logger.info(f"🔎 Before validation (GPT): {sql_query}")
             validated_sql = self._validate_sql(sql_query)
             if validated_sql:
                 return validated_sql, None
@@ -564,16 +574,35 @@ class SQLAgent:
     def _generate_sql_with_gpt(self, user_query, active_table, schema_info, schema_context):
         """GPT-based SQL generation used only as fallback."""
         system_prompt = f"""
-        You are an expert SQL query generator. Convert natural language to PostgreSQL SELECT queries.
-        Active table: {active_table}
-        Schema:
+        You are an expert SQL query generator. Convert natural language questions to PostgreSQL SELECT queries.
+
+        Current Active Table: {active_table}
+
+        Database Schema:
         {schema_info}
-        Context:
+
+        Additional Schema Context:
         {schema_context}
+
         Rules:
-        - Only SELECT queries (read-only).
+        - Only generate SELECT queries (read-only)
+        - Use the exact table name: {active_table}
+        - Use proper aggregation (SUM, COUNT, AVG) when needed
+        - Include appropriate GROUP BY clauses for breakdowns
+        - Use WHERE clauses for filtering
+        - For string comparisons, prefer LOWER(column) = 'value' for case-insensitivity
+        - For aggregates like SUM, it is fine to return plain SUM(...); post-processing may wrap with COALESCE.
         - Do NOT modify or delete data.
-        - Output ONLY the SQL (no markdown).
+        - Do NOT use CREATE TABLE / CREATE VIEW / INSERT / UPDATE / DELETE / DROP / ALTER.
+        - Output ONLY the SQL (no markdown, no explanation).
+
+        IMPORTANT DATE HANDLING:
+        - If you see date-like columns stored as text (e.g. 'MM/DD/YYYY HH24:MI'), they may need to be parsed using:
+          to_timestamp(date_column, 'MM/DD/YYYY HH24:MI')::DATE
+        - For date filtering in WHERE clauses on such columns, you can use:
+          to_timestamp(date_column, 'MM/DD/YYYY HH24:MI')::DATE BETWEEN 'YYYY-MM-DD' AND 'YYYY-MM-DD'
+        - In SELECT, to expose a cleaned date, you can use an alias like:
+          to_timestamp(date_column, 'MM/DD/YYYY HH24:MI')::DATE AS invoice_date
         """
         response = self.client.chat.completions.create(
             model="gpt-3.5-turbo",
@@ -591,17 +620,36 @@ class SQLAgent:
     # Helpers
     # -------------------------------------------------------------------------
     def _clean_sql(self, sql_query: str) -> str:
-        """Strip markdown fences and whitespace from model output."""
+        """
+        Strip markdown fences and whitespace from model output.
+        Also try to extract the first SELECT ... ; block, in case
+        the model added extra text or DDL around the query.
+        """
         if not sql_query:
             return ""
         s = sql_query.strip()
+
+        # Remove markdown fences
         if s.startswith("```"):
+            # Strip leading/trailing backticks then drop language identifiers
             s = s.strip("`")
             s = s.replace("sql\n", "").replace("SQL\n", "")
+
+        s = s.strip()
+
+        # Try to extract the first SELECT ... ;
+        # This helps when the model returns "CREATE VIEW ... AS SELECT ... ;"
+        # or has explanations before/after.
+        match = re.search(r"(?is)\bselect\b.*?;", s)
+        if match:
+            s = match.group(0)
+
         return s.strip()
 
     def _get_table_schema(self, table_name):
-        """Get table schema information from information_schema."""
+        """
+        Get table schema information from information_schema, plus a small sample.
+        """
         try:
             query = f"""
                 SELECT column_name, data_type
@@ -613,27 +661,201 @@ class SQLAgent:
             schema_description = f"Table: {table_name}\nColumns:\n"
             for row in columns_info:
                 schema_description += f"- {row['column_name']} ({row['data_type']})\n"
+
+            # Include a small sample
+            sample_query = f"SELECT * FROM {table_name} LIMIT 3"
+            sample_rows = db_manager.execute_query_dict(sample_query)
+            if sample_rows:
+                schema_description += f"\nSample data:\n{self._rows_to_table(sample_rows)}"
+
             return schema_description
         except Exception as e:
             logger.error(f"Schema retrieval error: {e}")
             return f"Table: {table_name} (schema unavailable)"
 
     def _validate_sql(self, sql_query: str):
-        """Basic SQL safety/shape validation."""
+        """
+        Basic SQL safety/shape validation.
+
+        For your local demo we:
+        - Ensure it starts with SELECT.
+        - Block obviously destructive DML/DDL (DROP, DELETE, UPDATE, INSERT, ALTER).
+        - We do NOT block CREATE anymore, because GPT sometimes mentions it
+          even when the core query is a harmless SELECT.
+        """
+        if not sql_query or not isinstance(sql_query, str):
+            logger.warning("❌ SQL_AGENT: Empty or invalid SQL string")
+            return None
+
+        cleaned = sql_query.strip()
+        upper_sql = cleaned.upper()
+
+        # 1) Must start with SELECT or WITH
+        if not (upper_sql.startswith("SELECT") or upper_sql.startswith("WITH")):
+            logger.warning(f"❌ SQL_AGENT: Only SELECT/CTE allowed: {upper_sql}")
+            return None
+
+        # 2) Block multiple SQL statements
+        inner = cleaned[:-1] if cleaned.endswith(";") else cleaned
+        if ";" in inner:
+            logger.warning(f"❌ SQL_AGENT: Multiple statements not allowed: {upper_sql}")
+            return None
+
+        # 3) Safe destructive keyword detection using WORD BOUNDARIES
+        dangerous = r"\b(DROP|DELETE|ALTER|INSERT|UPDATE|TRUNCATE)\b"
+        if re.search(dangerous, upper_sql, flags=re.IGNORECASE):
+            logger.warning(f"❌ SQL_AGENT: Dangerous keyword matched via regex: {upper_sql}")
+            return None
+
+        logger.debug(f"✅ SQL_AGENT: SQL validated and safe: {cleaned}")
+        return cleaned
+
+    def _fix_date_format_issues(self, sql_query):
+        """
+        Fix common date format issues in generated SQL, especially around
+        text-based date columns like 'invoicedate' in 'MM/DD/YYYY HH24:MI' format.
+        """
         if not sql_query:
-            return None
+            return sql_query
 
-        if not sql_query.strip().upper().startswith("SELECT"):
-            return None
+        import re
 
-        dangerous_keywords = ['DROP', 'DELETE', 'UPDATE', 'INSERT', 'ALTER', 'CREATE']
-        if any(keyword in sql_query.upper() for keyword in dangerous_keywords):
-            return None
+        # Replace invoicedate::DATE with proper to_timestamp... alias
+        sql_query = re.sub(
+            r'SELECT\s+(\w+date)::DATE',
+            r"SELECT to_timestamp(\1, 'MM/DD/YYYY HH24:MI')::DATE AS invoice_date",
+            sql_query,
+            flags=re.IGNORECASE
+        )
+
+        # Fix other direct date casts not in SELECT
+        sql_query = re.sub(
+            r'(?<!SELECT\s)(\w+date)::DATE',
+            r"to_timestamp(\1, 'MM/DD/YYYY HH24:MI')::DATE",
+            sql_query,
+            flags=re.IGNORECASE
+        )
+
+        # Fix WHERE clauses with direct date comparisons
+        sql_query = re.sub(
+            r'WHERE\s+(\w+date)\s+BETWEEN',
+            r"WHERE to_timestamp(\1, 'MM/DD/YYYY HH24:MI')::DATE BETWEEN",
+            sql_query,
+            flags=re.IGNORECASE
+        )
+
+        # Fix WHERE clauses with date comparisons
+        sql_query = re.sub(
+            r'WHERE\s+to_timestamp\((\w+date),\s*\'MM/DD/YYYY HH24:MI\'\)::DATE\s*([<>=]+)',
+            r"WHERE to_timestamp(\1, 'MM/DD/YYYY HH24:MI')::DATE \2",
+            sql_query,
+            flags=re.IGNORECASE
+        )
+
+        # Fix BETWEEN clauses
+        sql_query = re.sub(
+            r'to_timestamp\((\w+date),\s*\'MM/DD/YYYY HH24:MI\'\)::DATE\s+BETWEEN',
+            r"to_timestamp(\1, 'MM/DD/YYYY HH24:MI')::DATE BETWEEN",
+            sql_query,
+            flags=re.IGNORECASE
+        )
+
+        # Fix GROUP BY clauses - use the alias
+        sql_query = re.sub(
+            r'GROUP BY\s+to_timestamp\((\w+date),\s*\'MM/DD/YYYY HH24:MI\'\)::DATE',
+            r"GROUP BY invoice_date",
+            sql_query,
+            flags=re.IGNORECASE
+        )
+
+        # Fix ORDER BY clauses - use the alias
+        sql_query = re.sub(
+            r'ORDER BY\s+to_timestamp\((\w+date),\s*\'MM/DD/YYYY HH24:MI\'\)::DATE',
+            r"ORDER BY invoice_date",
+            sql_query,
+            flags=re.IGNORECASE
+        )
+
+        # Clean up any duplicate aliases
+        sql_query = re.sub(
+            r'AS invoice_date AS \w+',
+            r'AS invoice_date',
+            sql_query,
+            flags=re.IGNORECASE
+        )
 
         return sql_query
 
+    def _apply_sql_patches(self, sql_query):
+        """
+        Apply common SQL patches for robustness.
+        """
+        if not sql_query:
+            return sql_query
 
+        # Patch common column name mistakes
+        sql_query = re.sub(r'\bcategory\b', 'product_category', sql_query)
 
+        # Case-insensitive product_category
+        sql_query = re.sub(
+            r"WHERE\s+product_category\s*=\s*'([^']+)'",
+            lambda m: f"WHERE LOWER(product_category) = '{m.group(1).lower()}'",
+            sql_query,
+            flags=re.IGNORECASE
+        )
 
+        # Case-insensitive gender
+        sql_query = re.sub(
+            r"WHERE\s+gender\s*=\s*'([^']+)'",
+            lambda m: f"WHERE LOWER(gender) = '{m.group(1).lower()}'",
+            sql_query,
+            flags=re.IGNORECASE
+        )
 
+        # COALESCE for SUM (avoid double COALESCE)
+        sql_query = re.sub(
+            r"COALESCE\(COALESCE\(SUM\(([^)]+)\), 0\), 0\)",
+            r"COALESCE(SUM(\1), 0)",
+            sql_query
+        )
+        sql_query = re.sub(
+            r"SUM\(([^)]+)\)",
+            r"COALESCE(SUM(\1), 0)",
+            sql_query
+        )
 
+        return sql_query
+
+    def execute_query(self, sql_query):
+        """
+        Execute SQL query and return results.
+        Useful for debugging or direct usage by other components.
+        """
+        if not sql_query:
+            return None
+
+        try:
+            logger.info(f"🔍 SQL_AGENT: Executing query: {sql_query}")
+            results = db_manager.execute_query_dict(sql_query)
+            logger.info(f"✅ SQL_AGENT: Retrieved {len(results) if results else 0} rows")
+            return results
+        except Exception as e:
+            logger.error(f"❌ SQL_AGENT: Query execution failed: {e}")
+            return None
+
+    def _rows_to_table(self, rows):
+        """Format list of dicts as a simple table string (for schema samples)."""
+        if not rows:
+            return "<empty>"
+
+        cols = list(rows[0].keys())
+        col_widths = {
+            c: max(len(str(c)), max((len(str(r.get(c, ''))) for r in rows), default=0))
+            for c in cols
+        }
+        header = " | ".join(str(c).ljust(col_widths[c]) for c in cols)
+        sep = "-+-".join('-' * col_widths[c] for c in cols)
+        lines = [header, sep]
+        for r in rows:
+            lines.append(" | ".join(str(r.get(c, '')).ljust(col_widths[c]) for c in cols))
+        return "\n".join(lines)

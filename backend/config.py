@@ -8,7 +8,7 @@ load_dotenv()
 class Config:
     # Database
     DATABASE_URL = os.getenv(
-        "DATABASE_URL", "postgresql://postgres:Password1!@localhost:5432/Revana")
+        "DATABASE_URL", "postgresql://postgres:Adilet123!@localhost:5432/Revana")
 
     # OpenAI
     OPENAI_API_KEY = ""  # Default for testing
