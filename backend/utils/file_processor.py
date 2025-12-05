@@ -75,6 +75,10 @@ class FileProcessor:
             df = self.convert_date_columns(df)
             logger.info(f"✅ Date columns processed")
             
+            # Auto-detect and convert date columns
+            df = self.convert_date_columns(df)
+            logger.info(f"✅ Date columns processed")
+            
             # Generate table name
             table_name = self.generate_table_name(filename)
             
@@ -226,7 +230,6 @@ class FileProcessor:
                             logger.info(f"✅ Auto-detected and converted column '{col}' to datetime")
                 except:
                     pass
-
         return df
     
     def map_pandas_to_postgres_type(self, pandas_dtype):

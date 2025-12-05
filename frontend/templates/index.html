@@ -678,8 +678,50 @@
                 removeTypingIndicator(typingId);
 
                 if (result.success) {
+                    // Add analysis response
                     addMessage(result.response, 'assistant', result);
-
+                    
+                    // Debug: Log full result structure
+                    console.log('Full result:', result);
+                    console.log('Result contains plot_html:', !!result.plot_html);
+                    if (result.plot_html) {
+                        console.log('Plot HTML length:', result.plot_html.length);
+                        console.log('Plot HTML preview:', result.plot_html.substring(0, 200));
+                    }
+                    
+                    // Display Plotly chart if available (for anomaly detection)
+                    if (result.plot_html) {
+                        console.log('Attempting to render Plotly chart...');
+                        // Ensure Plotly is loaded
+                        if (typeof Plotly === 'undefined') {
+                            console.log('Plotly not loaded, loading from CDN...');
+                            const plotlyScript = document.createElement('script');
+                            plotlyScript.src = 'https://cdn.plot.ly/plotly-2.35.2.min.js';
+                            plotlyScript.onload = () => {
+                                console.log('Plotly loaded successfully, now rendering chart...');
+                                try {
+                                    renderPlotlyChart(result.plot_html, result.grouped, result.statistics);
+                                } catch (err) {
+                                    console.error('Error calling renderPlotlyChart:', err);
+                                }
+                            };
+                            plotlyScript.onerror = () => {
+                                console.error('Failed to load Plotly from CDN');
+                            };
+                            document.head.appendChild(plotlyScript);
+                        } else {
+                            console.log('Plotly already loaded, rendering chart now...');
+                            try {
+                                renderPlotlyChart(result.plot_html, result.grouped, result.statistics);
+                            } catch (err) {
+                                console.error('Error calling renderPlotlyChart:', err);
+                            }
+                        }
+                    } else {
+                        console.log('No plot_html in result');
+                    }
+                    
+                    // Display charts if available (for regular visualizations)
                     if (result.charts && Object.keys(result.charts).length > 0) {
                         displayCharts(result.charts);
                     }
@@ -699,6 +741,96 @@
                 chatInput.disabled = false;
                 sendBtn.disabled = false;
                 chatInput.focus();
+            }
+        }
+
+        // Global function to render Plotly chart (used by both /chat and /analyze endpoints)
+        function renderPlotlyChart(htmlString, isGrouped=false, stats=null) {
+            console.log('renderPlotlyChart called with:', {
+                htmlLength: htmlString?.length,
+                isGrouped,
+                hasStats: !!stats
+            });
+            
+            try {
+                if (!htmlString) {
+                    throw new Error('htmlString is null or undefined');
+                }
+                
+                // Create a temporary container to parse the HTML
+                const tempDiv = document.createElement('div');
+                tempDiv.innerHTML = htmlString;
+                
+                // Find the plotly div
+                const plotlyDiv = tempDiv.querySelector('div[id]');
+                if (!plotlyDiv) {
+                    console.error('Could not find plotly div in HTML. First 500 chars:', htmlString.substring(0, 500));
+                    throw new Error('Could not find plotly div in HTML');
+                }
+                
+                // Find the script tag with Plotly.newPlot
+                const scripts = tempDiv.getElementsByTagName('script');
+                let plotlyScript = null;
+                for (let script of scripts) {
+                    if (script.textContent.includes('Plotly.newPlot')) {
+                        plotlyScript = script.textContent;
+                        break;
+                    }
+                }
+                
+                if (!plotlyScript) {
+                    console.error('Could not find Plotly.newPlot script');
+                    throw new Error('Could not find Plotly.newPlot call in HTML');
+                }
+                
+                // Create a new unique ID for this chart
+                const newDivId = 'plotly-chart-' + Date.now();
+                
+                // Replace the original div ID with our new one in the script
+                const originalDivId = plotlyDiv.id;
+                const modifiedScript = plotlyScript.replace(
+                    new RegExp(`['"]${originalDivId}['"]`, 'g'),
+                    `'${newDivId}'`
+                );
+                
+                // Create container with header
+                const containerDiv = document.createElement('div');
+                containerDiv.className = 'message assistant-message';
+                let header = '<strong>📊 Visualization:</strong><br>';
+                if (isGrouped && stats && stats.per_category) {
+                    header = '<strong>📊 Category Anomaly Visualization:</strong><br>';
+                    const catStats = stats.per_category;
+                    let summaryHtml = '<div style="margin:6px 0 10px; font-size:12px; line-height:1.4;">';
+                    summaryHtml += '<em>Per-Category Anomalies:</em><br>';
+                    Object.keys(catStats).forEach(cat => {
+                        const s = catStats[cat];
+                        summaryHtml += `${cat}: ${s.anomalies_found} / ${s.total_points} (${(s.anomaly_rate*100).toFixed(1)}%)<br>`;
+                    });
+                    summaryHtml += '</div>';
+                    header += summaryHtml;
+                }
+                containerDiv.innerHTML = header;
+                
+                // Create the chart div
+                const newChartDiv = document.createElement('div');
+                newChartDiv.id = newDivId;
+                newChartDiv.style.width = '100%';
+                newChartDiv.style.height = '500px';
+                
+                containerDiv.appendChild(newChartDiv);
+                chatMessages.appendChild(containerDiv);
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+                
+                // Execute the Plotly script
+                console.log('Executing Plotly script...');
+                eval(modifiedScript);
+                console.log('✅ Plotly chart rendered successfully');
+            } catch (error) {
+                console.error('❌ Error rendering Plotly chart:', error);
+                const errorDiv = document.createElement('div');
+                errorDiv.className = 'message assistant-message';
+                errorDiv.innerHTML = '<strong>📊 Visualization:</strong><br><p style="color: red;">Failed to render chart: ' + error.message + '</p>';
+                chatMessages.appendChild(errorDiv);
             }
         }
 

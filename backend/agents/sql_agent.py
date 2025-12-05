@@ -92,11 +92,13 @@ class SQLAgent:
                 except Exception:
                     return []
 
+            
             # Helper: detect date/time column and its data type
             def _get_date_column_info():
                 cols = _get_table_columns()
                 column_names = [c['column_name'] for c in cols]
 
+                
                 # Preferred date column names
                 date_keywords = ['date', 'invoicedate', 'orderdate', 'transactiondate', 'timestamp', 'time']
                 for keyword in date_keywords:
@@ -105,7 +107,7 @@ class SQLAgent:
                             # Find the data type for this column
                             col_info = next((c for c in cols if c['column_name'] == col), None)
                             return {'name': col, 'type': col_info['data_type'] if col_info else 'unknown'}
-
+                
                 # Fallback: check data types
                 for col_info in cols:
                     if 'timestamp' in col_info['data_type'].lower() or 'date' in col_info['data_type'].lower():
@@ -130,6 +132,7 @@ class SQLAgent:
                         if result and len(result) > 0:
                             sample_value = str(result[0][col_name])
 
+                            
                             # Detect format based on sample
                             if '/' in sample_value:
                                 # Could be MM/DD/YYYY or DD/MM/YYYY

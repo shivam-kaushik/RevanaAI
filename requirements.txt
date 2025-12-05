@@ -1,38 +1,39 @@
 # --- Web Framework ---
-fastapi==0.115.0
-uvicorn==0.30.1
-python-multipart==0.0.6
-python-dotenv==1.0.1
-requests==2.32.3
+fastapi
+uvicorn
+python-multipart
+python-dotenv
+requests
 itsdangerous>=2.2.0
 passlib[bcrypt]
 
 # --- LangChain & OpenAI Stack ---
-langchain==0.3.0
-langchain-core==0.3.29
-langchain-community==0.3.0
-langchain-openai==0.3.0
-openai==1.58.1
-jiter==0.6.0
+langchain
+langchain-core
+langchain-community
+langchain-openai
+langsmith
+openai
+jiter
 
 # --- Data & Analytics ---
-numpy==1.26.4
-pandas==2.2.2
-matplotlib==3.9.2
-plotly==5.24.1
-scikit-learn==1.5.2
-scipy==1.13.1
-prophet==1.1.7
-sentence-transformers==2.2.2
+numpy
+pandas
+matplotlib
+plotly
+scikit-learn
+scipy
+prophet
+sentence-transformers
 
 # --- Database & ORM ---
-sqlalchemy==2.0.23
-psycopg2-binary==2.9.9
-pgvector==0.2.5
-alembic==1.12.1
+sqlalchemy
+psycopg2-binary
+pgvector
+alembic
 
 # --- Optional / Vector Store ---
-chromadb==0.5.3
+chromadb
 
 # --- Local Qwen Text2SQL (Embedded Model) ---
 llama-cpp-python

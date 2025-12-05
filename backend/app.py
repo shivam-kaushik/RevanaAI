@@ -272,6 +272,10 @@ class FeedbackRequest(BaseModel):       # <-- NEW
 async def login_page(request: Request):
     """Render login page"""
     return templates.TemplateResponse("login.html", {"request": request, "error": None})
+    charts: dict | None = None  # --> charts --> forecast_combined
+    plot_html: str | None = None  # For anomaly detection plots
+    grouped: bool = False  # Whether anomaly detection is grouped by category
+    statistics: dict | None = None  # Anomaly detection statistics
 
 @app.post("/login")
 async def login_submit(request: Request):
@@ -566,21 +570,113 @@ async def analyze_data(request: ChatRequest):
                 "success": False,
                 "error": "No active dataset found. Please upload a CSV file first or select an existing dataset."
             }
+        
+        # Get active dataset info
+        active_dataset = dataset_manager.get_active_dataset()        
 
-        active_dataset = dataset_manager.get_active_dataset()
-
+        # Check if this is an anomaly detection query
+        anomaly_keywords = ["anomal", "outlier", "unusual", "drop", "spike", "irregular", "abnormal", "unexpected"]
+        is_anomaly_query = any(keyword in request.message.lower() for keyword in anomaly_keywords)
+        
+        # Check if this is an anomaly detection query
+        anomaly_keywords = ["anomal", "outlier", "unusual", "drop", "spike", "irregular", "abnormal", "unexpected"]
+        is_anomaly_query = any(keyword in request.message.lower() for keyword in anomaly_keywords)
+        
+        # Step 1: Generate SQL query
         sql_query, sql_error = sql_agent.generate_sql(request.message)
         if not sql_query:
             return {"success": False, "error": f"Could not generate SQL query: {sql_error}"}
 
         try:
-            data_rows = db_manager.execute_query_dict(sql_query)
-            if not data_rows:
-                return {"success": False, "error": "No data found for your query"}
+            if is_anomaly_query:
+                # For anomaly queries, get DataFrame directly
+                data_results = db_manager.execute_query(sql_query)
+                if data_results.empty:
+                    return {
+                        "success": False,
+                        "error": "No data found for your query"
+                    }
+                
+                # DEBUG: Log what we got from SQL
+                logger.info(f"📊 SQL returned {len(data_results)} rows")
+                logger.info(f"📊 Columns: {data_results.columns.tolist()}")
+                logger.info(f"📊 First few rows:\n{data_results.head()}")
+                if 'date' in data_results.columns:
+                    logger.info(f"📊 Date range: {data_results['date'].min()} to {data_results['date'].max()}")
+                    logger.info(f"📊 Unique dates: {data_results['date'].unique()}")
+            else:
+                # For regular queries, get dict format
+                data_rows = db_manager.execute_query_dict(sql_query)
+                if not data_rows:
+                    return {
+                        "success": False,
+                        "error": "No data found for your query"
+                    }
         except Exception as e:
             logger.error(f"SQL execution error: {e}")
-            return {"success": False, "error": f"Database query error: {str(e)}"}
-
+            return {
+                "success": False,
+                "error": f"Database query error: {str(e)}"
+            }
+        
+        # Step 3: Handle anomaly detection or generate insights
+        if is_anomaly_query:
+            try:
+                logger.info("🚨 Running anomaly detection with auto-column detection...")
+                # Try to auto-detect if there's a category column
+                category_col = anomaly_agent._auto_detect_category_column(data_results)
+                
+                if category_col:
+                    logger.info(f"🏷️ Detected category column: {category_col}, running grouped anomaly detection")
+                    anomaly_result = anomaly_agent.detect_anomalies_by_category(data_results)
+                else:
+                    logger.info(f"📊 No category column detected, running single anomaly detection")
+                    anomaly_result = anomaly_agent.detect_anomalies(data_results)
+                
+                if anomaly_result.get('success'):
+                    # Get the plot HTML (single or grouped)
+                    plot_html = anomaly_result['plot'].to_html(full_html=False, include_plotlyjs='cdn')
+                    summary = anomaly_agent.summarize_anomalies(anomaly_result)
+                    
+                    logger.info(f"✅ Plot HTML generated, length: {len(plot_html)}")
+                    logger.info(f"✅ Plot HTML preview: {plot_html[:200]}...")
+                    
+                    # Format response (text only, plot will be rendered separately)
+                    if category_col:
+                        response_text = f"🚨 **Category Anomaly Detection Results**\n\n"
+                    else:
+                        response_text = f"🚨 **Anomaly Detection Results**\n\n"
+                    response_text += f"**Dataset:** {active_dataset['original_filename']}\n\n"
+                    response_text += f"**SQL Query Used:**\n```sql\n{sql_query}\n```\n\n"
+                    response_text += f"**Analysis Summary:**\n{summary}\n\n"
+                    
+                    logger.info(f"✅ Returning response with plot_html field")
+                    
+                    return {
+                        "success": True,
+                        "response": response_text,
+                        "plot_html": plot_html,  # Send plot separately
+                        "data": anomaly_result.get('anomalies', anomaly_result.get('anomalies_by_category', [])),
+                        "grouped": bool(category_col),
+                        "group_column": category_col,
+                        "statistics": anomaly_result.get('statistics', {}),
+                        "sql_query": sql_query
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "error": anomaly_result.get('error', 'Anomaly detection failed')
+                    }
+            except Exception as e:
+                logger.error(f"Anomaly detection error: {e}")
+                import traceback
+                traceback.print_exc()
+                return {
+                    "success": False,
+                    "error": f"Anomaly detection failed: {str(e)}"
+                }
+        
+        # Regular analysis flow
         insights = analysis_agent.generate_insights(request.message, data_rows)
 
         charts = {}
@@ -693,10 +789,16 @@ async def chat_endpoint(request: ChatRequest):
 
         charts = None
         interaction_id = None
+        plot_html: str | None = None
+        grouped: bool = False
+        statistics: dict | None = None
 
         if is_data_query:
             active_dataset_fresh = dataset_manager.get_active_dataset(force_refresh=True)
-            logger.info(f"📊 Executing with active dataset: {active_dataset_fresh['table_name'] if active_dataset_fresh else 'None'}")
+            logger.info(
+                f"📊 Executing with active dataset: "
+                f"{active_dataset_fresh['table_name'] if active_dataset_fresh else 'None'}"
+            )
 
             results = await execute_agent_plan(plan, has_active_dataset)
             charts = results.get("charts")
@@ -704,7 +806,7 @@ async def chat_endpoint(request: ChatRequest):
             agents_used = plan.get('required_agents', []) or ["SQL_AGENT", "INSIGHT_AGENT"]
             final_text = results['final_response']
 
-            # --------- NEW: log interaction ----------
+            # --------- log interaction (data query) ----------
             try:
                 interaction_id = feedback_agent.log_interaction(
                     session_id=request.conversation_id,
@@ -718,6 +820,12 @@ async def chat_endpoint(request: ChatRequest):
                 logger.error(f"Feedback logging failed (chat data): {log_err}")
                 interaction_id = None
             # -----------------------------------------
+
+            # Extract anomaly plot info for response
+            plot_html = results.get('plot_html')
+            grouped = results.get('grouped', False)
+            statistics = results.get('statistics')
+
         else:
             chat_response = await get_chatgpt_response(request.message, has_active_dataset)
             results = {'final_response': chat_response}
@@ -739,16 +847,27 @@ async def chat_endpoint(request: ChatRequest):
                 logger.error(f"Feedback logging failed (chat conv): {log_err}")
                 interaction_id = None
 
-        return ChatResponse(
-            response=results['final_response'],
-            data=response_data,
-            agents_used=agents_used,
-            execution_plan=plan.get('execution_plan', []),
-            needs_clarification=False,
-            has_dataset=has_active_dataset,
-            charts=charts,
-            interaction_id=interaction_id,
-        )
+        # Build response dict including optional anomaly info + interaction_id
+        response_dict = {
+            "response": results['final_response'],
+            "data": response_data,
+            "agents_used": agents_used,
+            "execution_plan": plan.get('execution_plan', []),
+            "needs_clarification": False,
+            "has_dataset": has_active_dataset,
+            "charts": charts,
+            "interaction_id": interaction_id,
+        }
+
+        # Add anomaly plot info if available
+        if plot_html:
+            response_dict["plot_html"] = plot_html
+            response_dict["grouped"] = grouped
+            if statistics:
+                response_dict["statistics"] = statistics
+
+        return ChatResponse(**response_dict)
+
     except Exception as e:
         logger.error(f"Error in chat endpoint: {e}")
         try:
@@ -830,12 +949,58 @@ async def execute_agent_plan(plan, has_database_tables):
                 logger.error(f"Forecast agent error: {e}")
                 return {'final_response': f"❌ Forecast error: {str(e)}"}
 
-        elif agent_name == "ANOMALY_AGENT" and data_results is not None:
-            anomalies = anomaly_agent.detect_anomalies(data_results)
-
+        elif agent_name == "ANOMALY_AGENT":
+            if data_results is None:
+                logger.warning("⚠️ ANOMALY_AGENT called but no data available! Skipping...")
+                anomalies = {'message': 'No data available for anomaly detection. Please ensure SQL_AGENT runs first.'}
+            else:
+                # Detect anomalies with visualization (now with auto-detection)
+                logger.info(f"🚨 Running anomaly detection on {len(data_results)} rows...")
+                try:
+                    # Try to auto-detect if there's a category column
+                    category_col = anomaly_agent._auto_detect_category_column(data_results)
+                    
+                    if category_col:
+                        logger.info(f"🏷️ Detected category column: {category_col}, running grouped anomaly detection")
+                        anomaly_result = anomaly_agent.detect_anomalies_by_category(data_results)
+                    else:
+                        logger.info(f"📊 No category column detected, running single anomaly detection")
+                        anomaly_result = anomaly_agent.detect_anomalies(data_results)
+                    
+                    if anomaly_result.get('success'):
+                        # Get the plot HTML
+                        plot_html = anomaly_result['plot'].to_html(full_html=False, include_plotlyjs='cdn')
+                        anomalies = {
+                            'summary': anomaly_agent.summarize_anomalies(anomaly_result),
+                            'plot_html': plot_html,
+                            'anomalies': anomaly_result.get('anomalies', anomaly_result.get('anomalies_by_category', [])),
+                            'statistics': anomaly_result.get('statistics', {})
+                        }
+                        logger.info(f"✅ Anomaly detection completed successfully")
+                    else:
+                        anomalies = {'message': anomaly_result.get('error', 'Anomaly detection failed')}
+                        logger.error(f"❌ Anomaly detection failed: {anomaly_result.get('error')}")
+                except Exception as e:
+                    logger.error(f"❌ Anomaly detection error: {e}")
+                    anomalies = {'message': f'Error detecting anomalies: {str(e)}'}
+    
+    # Combine results into final response
     final_response = build_final_response(insights, forecasts, anomalies, data_results, user_query)
 
     charts = {}
+    plot_html = None
+    grouped = False
+    statistics = None
+    
+    # Extract anomaly plot if available
+    if isinstance(anomalies, dict) and anomalies.get('plot_html'):
+        plot_html = anomalies['plot_html']
+        statistics = anomalies.get('statistics')
+        # Check if this is a grouped/category anomaly detection
+        if statistics and 'per_category' in statistics:
+            grouped = True
+    
+    # Extract forecast charts if available
     if isinstance(forecasts, dict):
         plots = forecasts.get("plots", {}) or {}
 
@@ -860,12 +1025,14 @@ async def execute_agent_plan(plan, has_database_tables):
         }
     else:
         data_payload = {"forecasts": forecasts} if forecasts else None
-        print("Debug: data payload:", data_payload)
 
     return {
         "final_response": final_response,
         "data": data_payload,
         "charts": charts if charts else None,
+        "plot_html": plot_html,
+        "grouped": grouped,
+        "statistics": statistics
     }
 
 async def get_chatgpt_response(user_query, has_dataset):
@@ -911,19 +1078,38 @@ def build_final_response(insights, forecasts, anomalies, data_results, user_quer
         md = forecasts.get("markdown")
         if md:
             response_parts.append(md)
+            #print("Debug: appended markdown forecasts", md)
         else:
             response_parts.append(
                 "🔮 **Forecasts:**\n" + "\n".join([f"- {k}: {v}" for k, v in forecasts.items()])
             )
     elif forecasts:
         response_parts.append(f"🔮 **Forecasts:**\n{forecasts}")
-
-    if anomalies and isinstance(anomalies, dict):
-        response_parts.append(
-            f"🚨 **Anomaly Detection:**\n{anomalies.get('message', 'No significant anomalies detected')}"
-        )
-    elif anomalies:
-        response_parts.append(f"🚨 **Anomaly Detection:**\n{anomalies}")
+        
+    if anomalies:
+        if isinstance(anomalies, dict):
+            if "summary" in anomalies:
+                # New anomaly format with plot + summary
+                response_parts.append(
+                    f"🚨 **Anomaly Detection:**\n{anomalies['summary']}"
+                )
+                if anomalies.get("plot_html"):
+                    response_parts.append(f"**Visualization:**\n{anomalies['plot_html']}")
+                if anomalies.get("anomalies"):
+                    anomaly_count = len(anomalies["anomalies"])
+                    response_parts.append(f"\n**Found {anomaly_count} anomalous periods**")
+            elif "message" in anomalies:
+                # Older/simple format with message only
+                response_parts.append(
+                    "🚨 **Anomaly Detection:**\n"
+                    f"{anomalies.get('message', 'No significant anomalies detected')}"
+                )
+            else:
+                # Unknown dict structure – just dump it
+                response_parts.append(f"🚨 **Anomaly Detection:**\n{anomalies}")
+        else:
+            # Non-dict anomaly info (string, etc.)
+            response_parts.append(f"🚨 **Anomaly Detection:**\n{anomalies}")
 
     if data_results is not None and not data_results.empty:
         response_parts.append(f"📈 **Data Summary:** Retrieved {len(data_results)} records")
