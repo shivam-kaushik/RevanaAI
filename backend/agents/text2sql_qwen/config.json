@@ -1,0 +1,7 @@
+{
+    "repo_id": "Ellbendls/Qwen-3-4b-Text_to_SQL-GGUF",
+    "filename": "Qwen-3-4b-Text_to_SQL-q4_k_s.gguf",
+    "n_ctx": 4096,
+    "n_gpu_layers": 0,
+    "n_threads": 0
+}

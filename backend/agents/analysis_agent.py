@@ -83,6 +83,8 @@ class AnalysisAgent:
                 return self._create_line_chart(data_rows, user_query)
             elif chart_type == "histogram":
                 return self._create_histogram(data_rows, user_query)
+            elif chart_type == "scatter":
+                return self._create_scatter_chart(data_rows, user_query)
             else:
                 return None, f"Unsupported chart type: {chart_type}"
                 
@@ -101,7 +103,11 @@ class AnalysisAgent:
             return "pie"
         elif any(word in query_lower for word in ['line chart', 'line graph', 'trend', 'over time']):
             return "line"
-        elif any(word in query_lower for word in ['histogram', 'distribution', 'frequency']):
+        elif any(word in query_lower for word in ['line chart', 'line graph', 'trend', 'over time']):
+            return "line"
+        elif any(word in query_lower for word in ['scatter', 'distribution', 'correlation', 'relationship']):
+            return "scatter"
+        elif any(word in query_lower for word in ['histogram', 'frequency']):
             return "histogram"
         
         # Auto-detect based on data characteristics
@@ -133,17 +139,32 @@ class AnalysisAgent:
             
             # Find categorical and numerical columns
             cat_col = next((k for k, v in data_rows[0].items() if isinstance(v, str)), None)
-            num_col = self._first_numeric_column(data_rows)
+            num_cols = [k for k, v in data_rows[0].items() if isinstance(v, (int, float))]
+            
+            # If no categorical column found, but we have multiple numeric columns,
+            # treat the one with fewer unique values (or "year" in name) as categorical
+            if not cat_col and len(num_cols) >= 2:
+                # Simple heuristic: "year" or "month" often used as category in bar charts
+                pk_candidates = [c for c in num_cols if 'year' in c.lower() or 'month' in c.lower() or 'id' in c.lower()]
+                if pk_candidates:
+                    cat_col = pk_candidates[0]
+                    num_cols.remove(cat_col)
+                else:
+                    # Sort by cardinality? No, just take the first one as x-axis
+                    cat_col = num_cols[0]
+                    num_cols = num_cols[1:]
+            
+            num_col = num_cols[0] if num_cols else None
             
             if not cat_col or not num_col:
-                return None, "Bar chart requires both categorical and numerical data"
+                return None, "Bar chart requires two columns (categories and values)"
             
             # Aggregate data
             agg = defaultdict(float)
             for row in data_rows:
-                k = row.get(cat_col)
+                k = str(row.get(cat_col)) # Force string for label
                 v = self._to_number(row.get(num_col))
-                if isinstance(k, str) and v is not None:
+                if v is not None:
                     agg[k] += v
             
             # Sort and take top 10
@@ -219,18 +240,6 @@ class AnalysisAgent:
             logger.info(f"Creating line chart with date_col: {date_col}, value_col: {value_col}")
             
             for i, row in enumerate(data_rows):
-                raw_date = row.get(date_col)
-                raw_num = row.get(value_col)
-                date_val = self._parse_date(raw_date)
-                num_val = self._to_number(raw_num)
-                logger.debug(f"Row {i}: raw_date={raw_date} (type: {type(raw_date)}), raw_num={raw_num} (type: {type(raw_num)})")
-                logger.debug(f"Row {i}: parsed_date={date_val}, parsed_num={num_val}")
-                if date_val is not None and num_val is not None:
-                    series[date_val] += num_val
-            
-            logger.info(f"Series data points: {len(series)}")
-            if series:
-                xs = sorted(series.keys())
                 ys = [series[x] for x in xs]
                 
                 plt.plot(xs, ys, marker='o', linewidth=2, markersize=6, color='blue')
@@ -277,6 +286,47 @@ class AnalysisAgent:
             logger.error(f"Histogram error: {e}")
             return None, f"Error creating histogram: {str(e)}"
     
+    
+    def _create_scatter_chart(self, data_rows, user_query):
+        """Create a scatter chart for relationships"""
+        try:
+            plt.figure(figsize=(10, 6))
+            
+            # Scatter requires two numeric columns
+            num_cols = [k for k, v in data_rows[0].items() if isinstance(v, (int, float)) or (isinstance(v, str) and self._to_number(v) is not None)]
+            
+            if len(num_cols) < 2:
+                return None, "Scatter chart requires at least two numerical columns"
+            
+            x_col = num_cols[0]
+            y_col = num_cols[1]
+            
+            xs = []
+            ys = []
+            
+            for row in data_rows:
+                x = self._to_number(row.get(x_col))
+                y = self._to_number(row.get(y_col))
+                if x is not None and y is not None:
+                    xs.append(x)
+                    ys.append(y)
+            
+            if xs:
+                plt.scatter(xs, ys, alpha=0.6, edgecolors='w', s=80)
+                plt.title(f'{y_col} vs {x_col}', fontsize=14, fontweight='bold')
+                plt.xlabel(x_col, fontsize=12)
+                plt.ylabel(y_col, fontsize=12)
+                plt.grid(True, alpha=0.3)
+                plt.tight_layout()
+                
+                return self._plot_to_base64(), None
+            else:
+                return None, "No valid data for scatter chart"
+                
+        except Exception as e:
+            logger.error(f"Scatter chart error: {e}")
+            return None, f"Error creating scatter chart: {str(e)}"
+
     def _plot_to_base64(self):
         """Convert matplotlib plot to base64 string"""
         buf = io.BytesIO()
@@ -301,6 +351,10 @@ class AnalysisAgent:
         # Get numeric summaries
         numeric_summaries = self._numeric_summary(data_rows)
         
+        # Get correlations if applicable
+        numeric_cols = list(numeric_summaries.keys())
+        correlations = self._calculate_correlations(data_rows, numeric_cols)
+        
         return f"""
         Data Summary:
         - Total Records: {row_count}
@@ -311,7 +365,11 @@ class AnalysisAgent:
         
         Numeric Statistics:
         {json.dumps(numeric_summaries, indent=2)}
+        
+        Correlations:
+        {json.dumps(correlations, indent=2)}
         """
+
     
     def _rows_to_table(self, rows):
         """Format list of dicts as a simple table string"""
@@ -356,6 +414,39 @@ class AnalysisAgent:
                 }
         
         return summary
+
+    def _calculate_correlations(self, rows, numeric_cols):
+        """Calculate correlations between numeric columns"""
+        if len(numeric_cols) < 2 or len(rows) < 2:
+            return {}
+        
+        correlations = {}
+        for i in range(len(numeric_cols)):
+            col1 = numeric_cols[i]
+            for j in range(i + 1, len(numeric_cols)):
+                col2 = numeric_cols[j]
+                
+                vals1 = []
+                vals2 = []
+                for row in rows:
+                    v1 = self._to_number(row.get(col1))
+                    v2 = self._to_number(row.get(col2))
+                    if v1 is not None and v2 is not None:
+                        vals1.append(v1)
+                        vals2.append(v2)
+                
+                if len(vals1) > 1:
+                    mean1 = sum(vals1) / len(vals1)
+                    mean2 = sum(vals2) / len(vals2)
+                    
+                    numerator = sum((a - mean1) * (b - mean2) for a, b in zip(vals1, vals2))
+                    denominator = (sum((a - mean1)**2 for a in vals1) * sum((b - mean2)**2 for b in vals2)) ** 0.5
+                    
+                    if denominator != 0:
+                        corr = round(numerator / denominator, 4)
+                        correlations[f"{col1} vs {col2}"] = corr
+        
+        return correlations
     
     # Helper methods
     def _first_numeric_column(self, rows):
@@ -391,7 +482,7 @@ class AnalysisAgent:
         
         # First, look for columns with 'date' in the name
         for col in data_rows[0].keys():
-            if 'date' in col.lower():
+            if 'date' in col.lower() or 'year' in col.lower() or 'month' in col.lower():
                 return col
         
         # If no obvious date column, try to detect by content

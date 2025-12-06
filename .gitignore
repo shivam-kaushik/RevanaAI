@@ -44,3 +44,10 @@ Thumbs.db
 
 # Ignore large files
 /data/
+
+.env
+forecast_total_cost.png
+test_plot_forecast_agent.py
+test_forecast_agent.py
+forecast_agent.py
+frontend/static/forecast

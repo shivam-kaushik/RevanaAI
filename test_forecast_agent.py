@@ -4,13 +4,14 @@ import sys
 import pandas as pd
 
 try:
-    from backend.agents.forecast_agent import ForecastAgent
+    #from backend.agents.forecast_agent import ForecastAgent
+    from forecast_agent import ForecastAgent
 except Exception as e:
     print("Import error: run this from the project ROOT (where 'backend/' exists).")
     print(e)
     sys.exit(1)
 
-CSV_PATH = "./Retail_Transactions_Dataset.csv"   
+CSV_PATH = "./retail_transaction_clean_updated.csv"   
 PERIODS = 3                                      # forecast horizon in months
 
 def main():
