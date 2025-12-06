@@ -3,1062 +3,468 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Agentic Sales Assistant</title>
+    <title>Revana AI - Sales Assistant</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <link rel="stylesheet" href="/static/css/main.css">
-    <style>
-        /* Additional styles for user pills and improved layout */
-        .header-top {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .header-user-block {
-            text-align: right;
-            font-size: 0.9em;
-        }
-        .role-pill {
-            background: rgba(255, 255, 255, 0.2);
-            padding: 4px 10px;
-            border-radius: 12px;
-            margin-right: 10px;
-            font-size: 0.85em;
-        }
-        .nav-link-btn {
-            color: #fff;
-            text-decoration: underline;
-            margin-left: 10px;
-            cursor: pointer;
-        }
-        .header-title-block h1 { margin: 0; font-size: 1.8em; }
-        .header-title-block p { margin: 5px 0 0; opacity: 0.9; }
-        .header-subtitle-role { margin-top: 5px; font-size: 0.9em; color: #dfe6e9; }
-        
-        /* Layout modifications based on role */
-        .chat-layout {
-            display: block !important; /* Full width for chat */
-        }
-        .chat-layout .upload-section {
-            display: none;
-        }
-        .chat-layout .chat-section {
-            width: 100%;
-            max-width: 800px;
-            margin: 0 auto;
-        }
-        
-        .admin-layout {
-            /* Standard split layout */
-        }
-        
-        .user-management-card {
-            background: white;
-            padding: 15px;
-            border-radius: 8px;
-            margin-top: 20px;
-            border-left: 4px solid #764ba2;
-        }
-        .form-row {
-            margin-bottom: 10px;
-        }
-        .form-row label {
-            display: block;
-            font-size: 0.85em;
-            margin-bottom: 5px;
-            color: #555;
-        }
-        .text-input {
-            width: 100%;
-            padding: 8px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-        }
-        
-        /* Message styling updates */
-        .agent-tag { background: #764ba2; color: #fff; border-radius: 10px; padding: 2px 6px; font-size: 0.75em; margin-right: 4px; }
-        
-        /* Feedback widget */
-        .feedback-widget { margin-top: 8px; border-top: 1px dashed #eee; padding-top: 5px; }
-        .feedback-title { font-size: 0.8em; color: #888; }
-        .feedback-stars { cursor: pointer; color: #ccc; font-size: 1.2em; }
-        .feedback-stars span:hover, .feedback-stars span.selected { color: #f1c40f; }
-        .feedback-status { font-size: 0.8em; margin-top: 2px; }
-        .feedback-status.success { color: green; }
-        .feedback-status.error { color: red; }
-    </style>
 </head>
 <body>
-    <div class="container">
-        <header class="header">
-            <div class="header-top">
-                <div class="header-title-block">
-                    <h1>🤖 Agentic Sales Assistant</h1>
-                    <p>Conversational analytics on top of your sales datasets</p>
-                    <div class="header-subtitle-role">
-                        {% if role == 'admin' %}
-                            You are in <strong>Admin</strong> mode – manage datasets and run advanced analytics.
-                        {% elif role == 'sales' %}
-                            You are in <strong>Sales</strong> mode – chat with the assistant and explore insights.
-                        {% elif role == 'customer' %}
-                            You are in <strong>Customer</strong> mode – ask high-level questions about performance.
-                        {% else %}
-                            Not signed in – please <strong>log in</strong> to access the assistant.
-                        {% endif %}
-                    </div>
-                </div>
-
-                <div class="header-user-block">
-                    {% if user %}
-                        <span class="role-pill">
-                            {{ user.role|capitalize }} view
-                        </span>
-                        <span class="user-name">
-                            Signed in as <strong>{{ user.username }}</strong>
-                        </span>
-                        <a href="/logout" class="nav-link-btn">Logout</a>
-                    {% else %}
-                        <a href="/login" class="nav-link-btn">Login</a>
-                    {% endif %}
-                </div>
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <div class="sidebar">
+            <div class="logo-container">
+                <img src="/static/image.png" alt="Revana Logo" class="app-logo">
+                <span class="logo-text">Revana</span>
             </div>
-        </header>
-
-        <main class="main-content {% if role == 'admin' %}admin-layout{% else %}chat-layout{% endif %}">
-
-            {% if role == 'admin' %}
-            <!-- ========== ADMIN DASHBOARD: Upload + Chat ========== -->
-            <section class="upload-section">
-                <div class="upload-area" id="uploadArea">
-                    <div class="upload-icon">📁</div>
-                    <h3>Upload Your CSV File</h3>
-                    <p>Drag &amp; drop your CSV file here or click to browse</p>
-                    <input type="file" id="fileInput" class="file-input" accept=".csv">
-                    <button class="upload-btn" id="uploadBtn">
-                        Choose File
-                    </button>
+            
+            <button class="new-chat-btn" onclick="location.reload()">
+                <span>+</span> New Chat
+            </button>
+            
+            <nav class="nav-links">
+                <a href="#" class="nav-item active">
+                    <span>💬</span> Chat
+                </a>
+                {% if role == 'admin' %}
+                <!-- Admin Tools -->
+                <a href="#" onclick="document.getElementById('upload-modal').style.display='flex'" class="nav-item">
+                    <span>📁</span> Upload Dataset
+                </a>
+                <a href="#" onclick="handleOpenDatasets()" class="nav-item">
+                    <span>📚</span> Datasets
+                </a>
+                <a href="#" onclick="document.getElementById('user-modal').style.display='flex'" class="nav-item">
+                    <span>👥</span> User Mgmt
+                </a>
+                {% endif %}
+            </nav>
+            
+            <div class="user-profile">
+                <!-- Initials Avatar -->
+                <div class="avatar">{{ user.username[:2].upper() if user else '?' }}</div>
+                <div style="flex: 1; overflow: hidden;">
+                    <div style="font-weight: 500; font-size: 0.9em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                        {{ user.username if user else 'Guest' }}
+                    </div>
+                    <div style="font-size: 0.75em; color: var(--text-secondary);">
+                        {{ role|capitalize if role else '' }}
+                    </div>
                 </div>
+                <!-- Logout Icon -->
+                <a href="/logout" title="Logout" style="color: var(--text-secondary); text-decoration: none; padding: 4px;">
+                    <svg stroke="currentColor" fill="none" stroke-width="2" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round" height="16" width="16" xmlns="http://www.w3.org/2000/svg"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+                </a>
+            </div>
+        </div>
 
-                <div id="uploadStatus"></div>
-
-                <div class="dataset-info" id="datasetInfo" style="display: none;">
-                    <h4>📊 Active Dataset</h4>
-                    <div id="datasetDetails"></div>
-                </div>
-
-                <div class="dataset-management" id="datasetManagement" style="display:none;">
-                    <h4>📊 Dataset Management</h4>
+        <!-- Main Chat Area -->
+        <div class="main-content">
+            <div id="chat-container" class="chat-container">
+                <!-- Welcome Screen (Only visible initially) -->
+                <div class="welcome-screen animate-entry">
+                    <img src="/static/image.png" alt="Revana Logo" class="welcome-logo">
+                    <h1 class="welcome-title">Revana Sales Assistant</h1>
+                    <p>Ask me about sales trends, anomalies, or forecasts.</p>
                     
-                    <div class="active-dataset" id="activeDatasetInfo">
-                        <strong>Active Dataset:</strong> <span id="activeDatasetName">None</span>
-                    </div>
-                    
-                    <div class="dataset-list" style="margin-top: 10px;">
-                        <label><strong>Available Datasets:</strong></label>
-                        <select id="datasetSelect" class="dataset-select" style="width: 100%; padding: 8px; margin: 5px 0;">
-                            <option value="">Select a dataset...</option>
-                        </select>
-                        <button class="upload-btn" id="setActiveBtn" style="margin-top: 5px;">Set as Active</button>
-                    </div>
-                </div>
-
-                <div class="status-area" id="systemStatus">
-                    <h4>System Status</h4>
-                    <div id="statusMessage">Checking system status...</div>
-                </div>
-
-                <!-- ========== ADMIN: USER MANAGEMENT ========== -->
-                <div class="user-management-card">
-                    <h4>👥 User Management</h4>
-
-                    <div class="form-row">
-                        <label for="newUsername"><strong>Username</strong></label>
-                        <input type="text" id="newUsername" class="text-input" placeholder="e.g., john_doe">
-                    </div>
-
-                    <div class="form-row">
-                        <label for="newPassword"><strong>Password</strong></label>
-                        <input type="password" id="newPassword" class="text-input" placeholder="Set a password">
-                    </div>
-
-                    <div class="form-row">
-                        <label for="newRole"><strong>Role</strong></label>
-                        <select id="newRole" class="dataset-select">
-                            <option value="sales">Sales</option>
-                            <option value="customer">Customer</option>
-                            <option value="admin">Admin</option>
-                        </select>
-                    </div>
-
-                    <button class="upload-btn" id="createUserBtn" style="margin-top: 8px;">Create User</button>
-
-                    <div id="userStatus" class="small-status-text" style="margin-top: 6px;"></div>
-                </div>
-            </section>
-            {% endif %}
-
-            <!-- ========== CHAT SECTION (Visible to ALL roles) ========== -->
-            <section class="chat-section">
-                <div class="chat-messages" id="chatMessages">
-                    <div class="message assistant-message">
-                        <strong>🤖 Assistant</strong><br>
-                        {% if role == 'sales' %}
-                            Welcome, Sales! Your admin has prepared datasets for you. Ask questions like:
-                        {% elif role == 'admin' %}
-                            Welcome Admin! Upload a dataset on the left, then use this chat to analyze it.
-                        {% else %}
-                            Welcome! Once a dataset is configured, you can ask questions about overall performance.
-                        {% endif %}
-                        <div class="analysis-mode">
-                            <strong>Try asking:</strong><br>
-                            • "Show me total sales by month"<br>
-                            • "What are the top 5 products by revenue?"<br>
-                            • "Analyze sales trends over time"<br>
-                            • "Compare sales between genders"
+                    <div class="feature-grid">
+                        <div class="feature-card btn-3d" onclick="setQuery('Show me sales trend over time')">
+                            <h3>📈 Sales Trend</h3>
+                            <p>"Show me sales trend over time"</p>
+                        </div>
+                        <div class="feature-card btn-3d" onclick="setQuery('Are there any anomalies in sales?')">
+                            <h3>🚨 Anomalies</h3>
+                            <p>"Any anomalies in sales?"</p>
+                        </div>
+                        <div class="feature-card btn-3d" onclick="setQuery('Forecast sales for next month')">
+                            <h3>🔮 Forecast</h3>
+                            <p>"Forecast sales for next month"</p>
                         </div>
                     </div>
                 </div>
+            </div>
 
-                <div class="chat-input-area">
-                    <input type="text" class="chat-input" id="chatInput" placeholder="Ask about your data..." disabled>
-                    <button class="send-btn" id="sendBtn" disabled>Send</button>
+            <div class="input-area">
+                <div class="input-wrapper">
+                    <textarea id="user-input" class="chat-input" placeholder="Send a message..." rows="1" onkeydown="handleEnter(event)"></textarea>
+                    <button class="send-btn" onclick="sendMessage()">
+                        <svg stroke="currentColor" fill="none" stroke-width="2" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round" height="16" width="16" xmlns="http://www.w3.org/2000/svg"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                    </button>
                 </div>
-            </section>
+                <div style="text-align: center; font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.5rem;">
+                    Revana AI may produce inaccurate information about people, places, or facts.
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Upload Modal -->
+    <div id="upload-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:1000; justify-content:center; align-items:center;">
+        <div style="background:var(--bg-secondary); padding:2rem; border-radius:8px; width:400px; box-shadow:var(--shadow-lg); border: 1px solid var(--border-color);">
+            <h2 style="margin-bottom:1rem;">Upload Dataset</h2>
+            <form id="upload-form" onsubmit="handleUpload(event)">
+                <div style="margin-bottom: 1rem; border: 2px dashed var(--border-color); padding: 2rem; text-align: center; border-radius: 6px; position: relative;">
+                    <input type="file" id="file-input" accept=".csv" required style="position: absolute; width: 100%; height: 100%; top: 0; left: 0; opacity: 0; cursor: pointer;">
+                    <p style="color: var(--text-secondary);">Click or drag CSV here</p>
+                    <div id="file-name-display" style="margin-top: 0.5rem; font-weight: bold; color: var(--accent-color);"></div>
+                </div>
+                <div style="display:flex; justify-content:flex-end; gap:0.5rem;">
+                    <button type="button" onclick="document.getElementById('upload-modal').style.display='none'" style="background:transparent; border:1px solid var(--border-color); color:var(--text-primary); padding:0.5rem 1rem; border-radius:4px; cursor:pointer;">Cancel</button>
+                    <button type="submit" class="btn-3d">Upload</button>
+                </div>
+            </form>
+        </div>
+    </div>
 
-        </main>
+    <!-- Dataset Selection Modal -->
+    <div id="dataset-modal" class="modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:1000; justify-content:center; align-items:center;">
+        <div class="modal-content" style="background:var(--bg-secondary); padding:2rem; border-radius:8px; width:600px; box-shadow:var(--shadow-lg); border: 1px solid var(--border-color);">
+            <h2 style="margin-bottom:1rem;">Select Active Dataset</h2>
+            <div id="dataset-list" style="max-height: 400px; overflow-y: auto; margin: 1rem 0;">
+                <!-- Datasets injected here -->
+                <div class="dataset-item-loading">Loading datasets...</div>
+            </div>
+            <div class="modal-actions" style="display:flex; justify-content:flex-end;">
+                <button type="button" onclick="document.getElementById('dataset-modal').style.display='none'" style="background:transparent; border:1px solid var(--border-color); color:var(--text-primary); padding:0.5rem 1rem; border-radius:4px; cursor:pointer;">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- User Management Modal -->
+    <div id="user-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:1000; justify-content:center; align-items:center;">
+        <div style="background:var(--bg-secondary); padding:2rem; border-radius:8px; width:400px; box-shadow:var(--shadow-lg); border: 1px solid var(--border-color);">
+            <h2 style="margin-bottom:1rem;">Create User</h2>
+            <form onsubmit="handleCreateUser(event)">
+                <input type="text" id="new-username" placeholder="Username" required style="width: 100%; padding: 0.75rem; margin-bottom: 0.75rem; background: var(--bg-tertiary); border: 1px solid var(--border-color); color: white; border-radius: 4px;">
+                <input type="password" id="new-password" placeholder="Password" required style="width: 100%; padding: 0.75rem; margin-bottom: 0.75rem; background: var(--bg-tertiary); border: 1px solid var(--border-color); color: white; border-radius: 4px;">
+                <select id="new-role" style="width: 100%; padding: 0.75rem; margin-bottom: 1.5rem; background: var(--bg-tertiary); border: 1px solid var(--border-color); color: white; border-radius: 4px;">
+                    <option value="sales">Sales</option>
+                    <option value="customer">Customer</option>
+                    <option value="admin">Admin</option>
+                </select>
+                <div style="display:flex; justify-content:flex-end; gap:0.5rem;">
+                    <button type="button" onclick="document.getElementById('user-modal').style.display='none'" style="background:transparent; border:1px solid var(--border-color); color:var(--text-primary); padding:0.5rem 1rem; border-radius:4px; cursor:pointer;">Cancel</button>
+                    <button type="submit" class="btn-3d">Create</button>
+                </div>
+            </form>
+        </div>
     </div>
 
     <script>
-        // ===== DOM Elements =====
-        const fileInput      = document.getElementById('fileInput');
-        const uploadBtn      = document.getElementById('uploadBtn');
-        const uploadArea     = document.getElementById('uploadArea');
-        const uploadStatus   = document.getElementById('uploadStatus');
-        const systemStatus   = document.getElementById('systemStatus');
-        const statusMessage  = document.getElementById('statusMessage');
-        const datasetInfo    = document.getElementById('datasetInfo');
-        const datasetDetails = document.getElementById('datasetDetails');
-        const chatMessages   = document.getElementById('chatMessages');
-        const chatInput      = document.getElementById('chatInput');
-        const sendBtn        = document.getElementById('sendBtn');
+        // --- DOM Elements ---
+        const chatContainer = document.getElementById('chat-container');
+        const userInput = document.getElementById('user-input');
+        const fileInput = document.getElementById('file-input');
 
-        // State
-        let currentDataset = null;
-        let isUploading = false;
-
-        document.addEventListener('DOMContentLoaded', function() {
-            checkHealth();
-            setupEventListeners();
-            loadDatasets();
-
-            const setActiveBtn = document.getElementById('setActiveBtn');
-            const datasetSelect = document.getElementById('datasetSelect');
-            
-            if (setActiveBtn) {
-                setActiveBtn.addEventListener('click', function() {
-                    const selectedDataset = datasetSelect.value;
-                    if (selectedDataset) {
-                        setActiveDataset(selectedDataset);
-                    }
-                });
-            }
+        // --- Event Listeners ---
+        
+        // Auto-resize textarea
+        userInput.addEventListener('input', function() {
+            this.style.height = 'auto';
+            this.style.height = (this.scrollHeight) + 'px';
+            if(this.value === '') this.style.height = 'auto';
         });
 
-        // ===== Event Listeners Setup =====
-        function setupEventListeners() {
-            // File input change (admin only, element may not exist)
-            if (fileInput) {
-                fileInput.addEventListener('change', handleFileSelect);
-            }
-
-            // Drag and drop (admin only)
-            if (uploadArea) {
-                uploadArea.addEventListener('dragover', (e) => {
-                    e.preventDefault();
-                    uploadArea.classList.add('highlight');
-                });
-
-                uploadArea.addEventListener('dragleave', () => {
-                    uploadArea.classList.remove('highlight');
-                });
-
-                uploadArea.addEventListener('drop', (e) => {
-                    e.preventDefault();
-                    uploadArea.classList.remove('highlight');
-                    const files = e.dataTransfer.files;
-                    if (files.length > 0 && fileInput) {
-                        fileInput.files = files;
-                        handleFileSelect();
-                    }
-                });
-
-                uploadArea.addEventListener('click', () => {
-                    if (fileInput) fileInput.click();
-                });
-            }
-
-            // Chat input
-            if (chatInput) {
-                chatInput.addEventListener('keypress', (e) => {
-                    if (e.key === 'Enter') {
-                        sendMessage();
-                    }
-                });
-            }
-
-            // Send button
-            if (sendBtn) {
-                sendBtn.addEventListener('click', sendMessage);
-            }
-
-            // Dataset management (admin only)
-            const setActiveBtn   = document.getElementById('setActiveBtn');
-            const datasetSelect  = document.getElementById('datasetSelect');
-
-            if (setActiveBtn && datasetSelect) {
-                setActiveBtn.addEventListener('click', function() {
-                    const selectedDataset = datasetSelect.value;
-                    if (selectedDataset) {
-                        setActiveDataset(selectedDataset);
-                    }
-                });
-            }
-
-            // User management (admin only)
-            const createUserBtn = document.getElementById('createUserBtn');
-            const newUsername   = document.getElementById('newUsername');
-            const newPassword   = document.getElementById('newPassword');
-            const newRole       = document.getElementById('newRole');
-            const userStatus    = document.getElementById('userStatus');
-
-            if (createUserBtn && newUsername && newPassword && newRole && userStatus) {
-                createUserBtn.addEventListener('click', async () => {
-                    const username = newUsername.value.trim();
-                    const password = newPassword.value.trim();
-                    const role     = newRole.value;
-
-                    if (!username || !password) {
-                        userStatus.textContent = "Please enter username and password.";
-                        userStatus.style.color = "#cc0000";
-                        return;
-                    }
-
-                    try {
-                        createUserBtn.disabled = true;
-                        userStatus.textContent = "Creating user...";
-                        userStatus.style.color = "#555";
-
-                        const resp = await fetch('/admin/users', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ username, password, role })
-                        });
-
-                        const result = await resp.json();
-
-                        if (result.success) {
-                            userStatus.textContent = result.message || "User created successfully.";
-                            userStatus.style.color = "#28a745";
-                            newPassword.value = "";
-                        } else {
-                            userStatus.textContent = result.error || "Failed to create user.";
-                            userStatus.style.color = "#cc0000";
-                        }
-                    } catch (err) {
-                        console.error('Create user error:', err);
-                        userStatus.textContent = "Error creating user.";
-                        userStatus.style.color = "#cc0000";
-                    } finally {
-                        createUserBtn.disabled = false;
-                    }
-                });
-            }
-        }
-
-        // ===== File Upload Handling (Admin) =====
-        function handleFileSelect() {
-            if (!fileInput) return;
-            const file = fileInput.files[0];
-            if (file) {
-                if (file.type !== 'text/csv' && !file.name.endsWith('.csv')) {
-                    showStatus('Please select a CSV file.', 'error');
-                    return;
+        // File input display name
+        if(fileInput) {
+            fileInput.addEventListener('change', function(e) {
+                if(e.target.files[0]) {
+                    document.getElementById('file-name-display').textContent = e.target.files[0].name;
                 }
-                uploadFile(file);
+            });
+        }
+
+        function handleEnter(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
             }
         }
 
-        async function uploadFile(file) {
-            if (isUploading) return;
-            isUploading = true;
-            updateUploadButton(true);
-            showStatus('Uploading file...', 'info');
-
-            const formData = new FormData();
-            formData.append('file', file);
-
-            try {
-                const response = await fetch('/upload', {
-                    method: 'POST',
-                    body: formData
-                });
-
-                const result = await response.json();
-
-                if (result.success) {
-                    const msg = result.message || 'File uploaded successfully.';
-                    showStatus(msg, 'success');
-
-                    // Update the dataset info display
-                    if (result.dataset_info) {
-                        currentDataset = result.dataset_info;
-                        updateDatasetInfo(result.dataset_info);
-                    }
-
-                    // Reload the datasets list
-                    await loadDatasets();
-                    enableChat();
-                    await checkHealth();
-                } else {
-                    const msg = result.message || result.error || 'Upload failed.';
-                    showStatus(msg, 'error');
-                }
-
-            } catch (error) {
-                console.error('Upload error:', error);
-                showStatus('Upload failed: ' + error.message, 'error');
-            } finally {
-                isUploading = false;
-                updateUploadButton(false);
-            }
+        function setQuery(text) {
+            userInput.value = text;
+            sendMessage();
         }
 
-        function updateUploadButton(uploading) {
-            if (uploadBtn) {
-                uploadBtn.disabled = uploading;
-                uploadBtn.textContent = uploading ? 'Uploading...' : 'Choose File';
-            }
-        }
+        // --- Chat Functions ---
 
-        function showStatus(message, type = 'info') {
-            if (!uploadStatus) return;
-            uploadStatus.innerHTML = `
-                <div class="status-${type}">
-                    <strong>${type.toUpperCase()}:</strong> ${message}
+        function appendMessage(role, content, isHtml = false) {
+            // Remove welcome screen if it exists
+            const welcomeScreen = document.querySelector('.welcome-screen');
+            if (welcomeScreen) welcomeScreen.remove();
+
+            const msgDiv = document.createElement('div');
+            msgDiv.className = `message-row ${role}`;
+            
+            // Avatar logic
+            let avatar = '';
+            if (role === 'assistant') {
+                avatar = '<img src="/static/image.png" class="message-avatar">';
+            } else {
+                // User avatar (simple initial)
+                avatar = '<div class="message-avatar" style="background: var(--accent-color); color: white; display:flex; align-items:center; justify-content:center; border-radius:2px; font-weight:bold;">U</div>';
+            }
+
+            msgDiv.innerHTML = `
+                <div class="message-content">
+                    ${avatar}
+                    <div class="message-text">${isHtml ? content : escapeHtml(content)}</div>
                 </div>
             `;
+            
+            chatContainer.appendChild(msgDiv);
+            
+            // Scroll to bottom
+            // We scroll the main-content (parent of chat-container's messages) or chat-container itself?
+            // In CSS: .chat-container is overflow-y: auto.
+            chatContainer.scrollTop = chatContainer.scrollHeight;
         }
 
-        function updateDatasetInfo(info) {
-            if (!datasetInfo || !datasetDetails) return;
+        function showTyping() {
+            // Remove welcome screen if still there
+            const welcomeScreen = document.querySelector('.welcome-screen');
+            if (welcomeScreen) welcomeScreen.remove();
 
-            datasetInfo.style.display = 'block';
-            datasetDetails.innerHTML = `
-                <p><strong>Table:</strong> ${info.table_name || 'N/A'}</p>
-                <p><strong>Records:</strong> ${info.row_count || 0} rows</p>
-                <p><strong>Columns:</strong> ${info.column_count || 0}</p>
-                <p><strong>Database:</strong> ${info.database || 'PostgreSQL'}</p>
-                ${info.columns ? `<p><strong>Columns:</strong> ${info.columns.join(', ')}</p>` : ''}
+            const id = 'typing-' + Date.now();
+            const msgDiv = document.createElement('div');
+            msgDiv.className = 'message-row assistant';
+            msgDiv.id = id;
+            msgDiv.innerHTML = `
+                <div class="message-content">
+                    <img src="/static/image.png" class="message-avatar">
+                    <div class="message-text">
+                        <div class="typing-indicator">
+                            <div class="typing-dot"></div>
+                            <div class="typing-dot"></div>
+                            <div class="typing-dot"></div>
+                        </div>
+                    </div>
+                </div>
             `;
+            chatContainer.appendChild(msgDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+            return id;
         }
 
-        function enableChat() {
-            if (chatInput && sendBtn) {
-                chatInput.disabled = false;
-                sendBtn.disabled = false;
-                chatInput.placeholder = "Ask about your sales data (e.g., 'show me total sales by month')...";
-            }
-        }
-
-        // ---------- Semantic vs SQL routing ----------
-
-        const semanticKeywords = [
-            'similar', 'like', 'recommend', 'find products like', 'customers like',
-            'comparable', 'alternative', 'semantic', 'vector'
-        ];
-
-        function isSemanticQuery(message) {
-            return semanticKeywords.some(keyword =>
-                message.toLowerCase().includes(keyword)
-            );
+        function removeTyping(id) {
+            const el = document.getElementById(id);
+            if (el) el.remove();
         }
 
         async function sendMessage() {
-            if (!chatInput || !sendBtn) return;
+            const text = userInput.value.trim();
+            if (!text) return;
 
-            const message = chatInput.value.trim();
-            if (!message || sendBtn.disabled) return;
+            // Clear input
+            userInput.value = '';
+            userInput.style.height = 'auto';
 
-            const dataKeywords = [
-                'show', 'analyze', 'trend', 'chart', 'graph', 'sales', 'revenue',
-                'total', 'average', 'sum', 'count', 'by month', 'by category',
-                'compare', 'distribution', 'top', 'highest', 'lowest'
-            ];
+            // User Message
+            appendMessage('user', text);
 
-            const isDataQuery = dataKeywords.some(keyword => message.toLowerCase().includes(keyword));
-            const isSemantic  = isSemanticQuery(message);
-
-            if (isSemantic && currentDataset) {
-                await semanticSearch(message);
-            } else if (isDataQuery && currentDataset) {
-                await analyzeData();
-            } else {
-                await sendRegularMessage();
-            }
-        }
-
-        // ===== Semantic Search (Admin-only endpoint, but guarded by backend) =====
-        async function semanticSearch(message) {
-            addMessage(message, 'user');
-            chatInput.value = '';
-            chatInput.disabled = true;
-            sendBtn.disabled = true;
-
-            const typingId = showTypingIndicator();
-
-            try {
-                const response = await fetch('/semantic-search', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        message: message,
-                        conversation_id: 'default'
-                    })
-                });
-
-                const result = await response.json();
-                removeTypingIndicator(typingId);
-
-                if (result.success) {
-                    addMessage(result.response, 'assistant');
-                } else {
-                    addMessage(`❌ ${result.error}`, 'assistant');
-                }
-            } catch (error) {
-                console.error('Semantic search error:', error);
-                removeTypingIndicator(typingId);
-                addMessage('Sorry, I encountered an error during semantic search.', 'assistant');
-            } finally {
-                chatInput.disabled = false;
-                sendBtn.disabled = false;
-                chatInput.focus();
-            }
-        }
-
-        // ===== Dataset Management (Admin) =====
-        async function loadDatasets() {
-            try {
-                const response = await fetch('/datasets');
-                const result = await response.json();
-
-                if (result.success) {
-                    updateDatasetUI(result.datasets || [], result.active_dataset || null);
-                }
-            } catch (error) {
-                console.error('Error loading datasets:', error);
-            }
-        }
-
-        function updateDatasetUI(datasets, activeDataset) {
-            const datasetManagement = document.getElementById('datasetManagement');
-            const activeDatasetName = document.getElementById('activeDatasetName');
-            const datasetSelect     = document.getElementById('datasetSelect');
-
-            // Even if there is no datasetManagement (sales/customer view),
-            // we still want to track active dataset to enable chat.
-            if (activeDataset) {
-                currentDataset = activeDataset;
-                enableChat();
-            }
-
-            if (!datasetManagement || !activeDatasetName || !datasetSelect) {
-                return; // Non-admin view: no dataset UI to manage
-            }
-
-            if (datasets.length > 0) {
-                datasetManagement.style.display = 'block';
-                if (activeDataset) {
-                    activeDatasetName.textContent = `${activeDataset.table_name} (${activeDataset.row_count} rows)`;
-                } else {
-                    activeDatasetName.textContent = 'None';
-                }
-                datasetSelect.innerHTML = '<option value="">Select a dataset...</option>';
-                datasets.forEach(dataset => {
-                    const option = document.createElement('option');
-                    option.value = dataset.table_name;
-                    option.textContent = `${dataset.table_name} (${dataset.row_count} rows)`;
-                    if (activeDataset && dataset.table_name === activeDataset.table_name) {
-                        option.selected = true;
-                    }
-                    datasetSelect.appendChild(option);
-                });
-            } else {
-                datasetManagement.style.display = 'none';
-            }
-        }
-
-        async function setActiveDataset(tableName) {
-            try {
-                const response = await fetch('/datasets/active', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ table_name: tableName })
-                });
-
-                const result = await response.json();
-
-                if (result.success) {
-                    showStatus(`Dataset '${tableName}' is now active`, 'success');
-                    await loadDatasets();
-                } else {
-                    showStatus(`Failed to set active dataset: ${result.error}`, 'error');
-                }
-            } catch (error) {
-                console.error('Error setting active dataset:', error);
-                showStatus('Error setting active dataset', 'error');
-            }
-        }
-
-        // ===== User Management (Admin) =====
-        async function createUser() {
-            const usernameInput = document.getElementById('newUsername');
-            const passwordInput = document.getElementById('newPassword');
-            const roleSelect    = document.getElementById('newRole');
-            const userStatus    = document.getElementById('userStatus');
-
-            if (!usernameInput || !passwordInput || !roleSelect || !userStatus) return;
-
-            const username = usernameInput.value.trim();
-            const password = passwordInput.value.trim();
-            const role     = roleSelect.value;
-
-            if (!username || !password) {
-                userStatus.textContent = 'Please enter both username and password.';
-                userStatus.style.color = '#dc3545';
-                return;
-            }
-
-            try {
-                const response = await fetch('/admin/users', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ username, password, role })
-                });
-
-                const result = await response.json();
-
-                if (result.success) {
-                    userStatus.textContent = `User "${username}" created with role "${role}".`;
-                    userStatus.style.color = '#28a745';
-                    usernameInput.value = '';
-                    passwordInput.value = '';
-                    roleSelect.value = 'sales';
-                } else {
-                    userStatus.textContent = result.error || 'Failed to create user.';
-                    userStatus.style.color = '#dc3545';
-                }
-            } catch (err) {
-                console.error('Create user error:', err);
-                userStatus.textContent = 'Error creating user: ' + err.message;
-                userStatus.style.color = '#dc3545';
-            }
-        }
-
-        // ===== Health Check =====
-        async function checkHealth() {
-            try {
-                const response = await fetch('/health');
-                const result = await response.json();
-
-                if (statusMessage) {
-                    let statusHTML = `<span style="color: #28a745;">✅ ${result.message}</span><br>`;
-                    statusHTML += `<small>Database: ${result.database || 'PostgreSQL'}</small><br>`;
-                    statusHTML += `<small>Active Datasets: ${result.available_datasets_count || 0}</small>`;
-
-                    if (result.active_dataset) {
-                        statusHTML += `<br><small>Active: ${result.active_dataset.table_name}</small>`;
-                    }
-                    statusMessage.innerHTML = statusHTML;
-                }
-
-                // If there is an active dataset, enable chat for all roles
-                if (result.active_dataset) {
-                    currentDataset = result.active_dataset;
-                    enableChat();
-                }
-
-                // Also refresh dataset UI (for admin)
-                await loadDatasets();
-
-            } catch (error) {
-                console.error('Health check failed:', error);
-                if (statusMessage) {
-                    statusMessage.innerHTML = `<span style="color: #dc3545;">❌ Service unavailable</span>`;
-                }
-            }
-        }
-
-        setInterval(checkHealth, 30000); // every 30 seconds
-
-        // ===== Chat / Analysis Functions =====
-        async function sendRegularMessage() {
-            const message = chatInput.value.trim();
-            if (!message) return;
-
-            addMessage(message, 'user');
-            chatInput.value = '';
-            chatInput.disabled = true;
-            sendBtn.disabled = true;
-
-            const typingId = showTypingIndicator();
+            // Typing Indicator
+            const typingId = showTyping();
 
             try {
                 const response = await fetch('/chat', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        message: message,
-                        conversation_id: 'default'
-                    })
+                    body: JSON.stringify({ message: text })
                 });
+                
+                const data = await response.json();
+                removeTyping(typingId);
 
-                const result = await response.json();
-                removeTypingIndicator(typingId);
-                addMessage(result.response, 'assistant', result);
-
-                // Display Plotly chart if available (for anomaly detection)
-                if (result.plot_html) {
-                    if (typeof Plotly === 'undefined') {
-                        const plotlyScript = document.createElement('script');
-                        plotlyScript.src = 'https://cdn.plot.ly/plotly-2.35.2.min.js';
-                        plotlyScript.onload = () => {
-                            renderPlotlyChart(result.plot_html, result.grouped, result.statistics);
-                        };
-                        document.head.appendChild(plotlyScript);
-                    } else {
-                        renderPlotlyChart(result.plot_html, result.grouped, result.statistics);
-                    }
-                }
-
-                // Display charts if available (for regular visualizations or forecast)
-                if (result.charts && Object.keys(result.charts).length > 0) {
-                    displayCharts(result.charts);
-                }
-            } catch (error) {
-                console.error('Chat error:', error);
-                removeTypingIndicator(typingId);
-                addMessage('Sorry, I encountered an error. Please try again.', 'assistant');
-            } finally {
-                chatInput.disabled = false;
-                sendBtn.disabled = false;
-                chatInput.focus();
-            }
-        }
-
-        async function analyzeData() {
-            const message = chatInput.value.trim();
-            if (!message) return;
-
-            addMessage(message, 'user');
-            chatInput.value = '';
-            chatInput.disabled = true;
-            sendBtn.disabled = true;
-
-            const typingId = showTypingIndicator();
-
-            try {
-                const response = await fetch('/analyze', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        message: message,
-                        conversation_id: 'default'
-                    })
-                });
-
-                const result = await response.json();
-                removeTypingIndicator(typingId);
-
-                if (result.success) {
-                    // Add analysis response
-                    addMessage(result.response, 'assistant', result);
-                    
-                    // Display Plotly chart if available (for anomaly detection)
-                    if (result.plot_html) {
-                        if (typeof Plotly === 'undefined') {
-                            const plotlyScript = document.createElement('script');
-                            plotlyScript.src = 'https://cdn.plot.ly/plotly-2.35.2.min.js';
-                            plotlyScript.onload = () => {
-                                renderPlotlyChart(result.plot_html, result.grouped, result.statistics);
-                            };
-                            document.head.appendChild(plotlyScript);
-                        } else {
-                            renderPlotlyChart(result.plot_html, result.grouped, result.statistics);
-                        }
-                    }
-                    
-                    // Display charts if available (for regular visualizations)
-                    if (result.charts && Object.keys(result.charts).length > 0) {
-                        displayCharts(result.charts);
-                    }
+                if (data.error) {
+                    appendMessage('assistant', '<span style="color:var(--error-color)">Error: ' + data.error + '</span>', true);
                 } else {
-                    const errText =
-                        result.error ||
-                        result.message ||
-                        'Analysis failed – no error message returned.';
-                    addMessage(`❌ ${errText}`, 'assistant');
-                }
+                    // Render response: text + any plots
+                    let finalHtml = marked.parse(data.response || "");
+                    
+                    // Append charts if any
+                    if (data.plot_html) {
+                        finalHtml += `<div style="margin-top:1rem; border:1px solid var(--border-color); border-radius:8px; padding:10px; background:white; color:black;">${data.plot_html}</div>`;
+                    }
+                    if (data.charts && data.charts.length > 0) { // Legacy support
+                         data.charts.forEach(chart => {
+                            finalHtml += `<img src="data:image/png;base64,${chart}" style="max-width:100%; margin-top:1rem; border-radius:8px;">`;
+                         });
+                    }
 
-            } catch (error) {
-                console.error('Analysis error:', error);
-                removeTypingIndicator(typingId);
-                addMessage('Sorry, I encountered an error during analysis. Please try again.', 'assistant');
-            } finally {
-                chatInput.disabled = false;
-                sendBtn.disabled = false;
-                chatInput.focus();
-            }
-        }
-
-        // Global function to render Plotly chart (used by both /chat and /analyze endpoints)
-        function renderPlotlyChart(htmlString, isGrouped=false, stats=null) {
-            try {
-                if (!htmlString) throw new Error('htmlString is null');
-                
-                const tempDiv = document.createElement('div');
-                tempDiv.innerHTML = htmlString;
-                
-                const plotlyDiv = tempDiv.querySelector('div[id]');
-                if (!plotlyDiv) throw new Error('Could not find plotly div');
-                
-                const scripts = tempDiv.getElementsByTagName('script');
-                let plotlyScript = null;
-                for (let script of scripts) {
-                    if (script.textContent.includes('Plotly.newPlot')) {
-                        plotlyScript = script.textContent;
-                        break;
+                    appendMessage('assistant', finalHtml, true);
+                    
+                    // Re-evaluate scripts for Plotly in the last added message
+                    // We need to find the scripts recursively in the last message-row
+                    const lastMsg = chatContainer.lastElementChild;
+                    if(lastMsg) {
+                        const scripts = lastMsg.querySelectorAll('script');
+                        scripts.forEach(oldScript => {
+                            const newScript = document.createElement('script');
+                            Array.from(oldScript.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value));
+                            newScript.appendChild(document.createTextNode(oldScript.innerHTML));
+                            oldScript.parentNode.replaceChild(newScript, oldScript);
+                        });
                     }
                 }
-                
-                if (!plotlyScript) throw new Error('Could not find Plotly.newPlot call');
-                
-                const newDivId = 'plotly-chart-' + Date.now();
-                const originalDivId = plotlyDiv.id;
-                const modifiedScript = plotlyScript.replace(
-                    new RegExp(`['"]${originalDivId}['"]`, 'g'),
-                    `'${newDivId}'`
-                );
-                
-                const containerDiv = document.createElement('div');
-                containerDiv.className = 'message assistant-message';
-                let header = '<strong>📊 Visualization:</strong><br>';
-                if (isGrouped && stats && stats.per_category) {
-                    header = '<strong>📊 Category Anomaly Visualization:</strong><br>';
-                    const catStats = stats.per_category;
-                    let summaryHtml = '<div style="margin:6px 0 10px; font-size:12px; line-height:1.4;">';
-                    summaryHtml += '<em>Per-Category Anomalies:</em><br>';
-                    Object.keys(catStats).forEach(cat => {
-                        const s = catStats[cat];
-                        summaryHtml += `${cat}: ${s.anomalies_found} / ${s.total_points} (${(s.anomaly_rate*100).toFixed(1)}%)<br>`;
-                    });
-                    summaryHtml += '</div>';
-                    header += summaryHtml;
-                }
-                containerDiv.innerHTML = header;
-                
-                const newChartDiv = document.createElement('div');
-                newChartDiv.id = newDivId;
-                newChartDiv.style.width = '100%';
-                newChartDiv.style.height = '500px';
-                
-                containerDiv.appendChild(newChartDiv);
-                chatMessages.appendChild(containerDiv);
-                chatMessages.scrollTop = chatMessages.scrollHeight;
-                
-                eval(modifiedScript);
-            } catch (error) {
-                console.error('Error rendering chart:', error);
-                const errorDiv = document.createElement('div');
-                errorDiv.className = 'message assistant-message';
-                errorDiv.innerHTML = '<strong>📊 Visualization:</strong><br><p style="color: red;">Failed to render chart.</p>';
-                chatMessages.appendChild(errorDiv);
-            }
-        }
 
-        function displayCharts(charts) {
-            if (!chatMessages) return;
-
-            const chartsDiv = document.createElement('div');
-            chartsDiv.className = 'message assistant-message';
-            chartsDiv.innerHTML = '<strong>📈 Generated Charts:</strong><br>';
-
-            Object.entries(charts).forEach(([chartType, chartData]) => {
-                if (chartData) {
-                    const chartTitle = getChartTitle(chartType);
-                    chartsDiv.innerHTML += `
-                        <div class="chart-container">
-                            <div class="chart-title">${chartTitle}</div>
-                            <img src="data:image/png;base64,${chartData}" class="chart-image" />
-                        </div>
-                    `;
-                }
-            });
-
-            chatMessages.appendChild(chartsDiv);
-            chatMessages.scrollTop = chatMessages.scrollHeight;
-        }
-
-        function getChartTitle(chartType) {
-            const titles = {
-                'trend': '📈 Trend Analysis',
-                'bar': '📊 Category Comparison',
-                'pie': '🥧 Distribution',
-                'distribution': '📋 Data Distribution',
-                'forecast_combined': '🔮 Forecast Overview'
-            };
-            return titles[chartType] || 'Chart';
-        }
-
-        // ---------- Messaging helpers + FEEDBACK ----------
-
-        function addMessage(content, sender, metadata = null) {
-            if (!chatMessages) return;
-
-            const messageDiv = document.createElement('div');
-            messageDiv.className = `message ${sender}-message`;
-
-            let messageHTML = `<strong>${sender === 'user' ? '👤 You' : '🤖 Assistant'}</strong><br>`;
-            messageHTML += formatMessageContent(content);
-
-            if (metadata && sender === 'assistant') {
-                if (metadata.agents_used && metadata.agents_used.length > 0) {
-                    messageHTML += `<br><small>Agents: ${metadata.agents_used.map(agent => `<span class="agent-tag">${agent}</span>`).join('')}</small>`;
-                }
-                if (metadata.has_dataset) {
-                    messageHTML += `<br><small>📊 Using uploaded dataset</small>`;
-                }
-            }
-
-            messageDiv.innerHTML = messageHTML;
-            chatMessages.appendChild(messageDiv);
-
-            // If backend sent an interaction_id, render rating widget
-            if (sender === 'assistant' && metadata && metadata.interaction_id) {
-                renderFeedbackWidget(messageDiv, metadata.interaction_id);
-            }
-
-            chatMessages.scrollTop = chatMessages.scrollHeight;
-        }
-
-        function formatMessageContent(content) {
-            return content
-                .replace(/!\[(.*?)\]\((.*?)\)/g, '<br><img src="$2" alt="$1" class="chart-image"><br>')
-                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-                .replace(/\*(.*?)\*/g, '<em>$1</em>')
-                .replace(/`(.*?)`/g, '<code>$1</code>')
-                .replace(/\n/g, '<br>');
-        }
-
-        function showTypingIndicator() {
-            if (!chatMessages) return null;
-            const typingDiv = document.createElement('div');
-            typingDiv.className = 'typing-indicator';
-            typingDiv.id = 'typing-indicator';
-            typingDiv.innerHTML = `
-                <strong>🤖 Assistant</strong><br>
-                <div class="typing-dots">
-                    <span></span>
-                    <span></span>
-                    <span></span>
-                </div>
-            `;
-            chatMessages.appendChild(typingDiv);
-            chatMessages.scrollTop = chatMessages.scrollHeight;
-            return 'typing-indicator';
-        }
-
-        function removeTypingIndicator(id) {
-            if (!id) return;
-            const element = document.getElementById(id);
-            if (element) element.remove();
-        }
-
-        // ----- Rating widget -----
-
-        function renderFeedbackWidget(messageDiv, interactionId) {
-            if (!interactionId) return;
-
-            const existing = messageDiv.querySelector('.feedback-widget');
-            if (existing) return;
-
-            const container = document.createElement('div');
-            container.className = 'feedback-widget';
-            container.innerHTML = `
-                <div class="feedback-title">How helpful was this answer?</div>
-                <div class="feedback-stars">
-                    <span data-rating="1">★</span>
-                    <span data-rating="2">★</span>
-                    <span data-rating="3">★</span>
-                    <span data-rating="4">★</span>
-                    <span data-rating="5">★</span>
-                </div>
-                <div class="feedback-status"></div>
-            `;
-
-            const stars = container.querySelectorAll('.feedback-stars span');
-            const statusEl = container.querySelector('.feedback-status');
-
-            stars.forEach(star => {
-                star.addEventListener('click', async () => {
-                    const rating = parseInt(star.dataset.rating, 10);
-                    await submitFeedback(interactionId, rating, container, statusEl);
-
-                    stars.forEach(s => s.classList.remove('selected'));
-                    for (let i = 0; i < rating; i++) {
-                        stars[i].classList.add('selected');
-                    }
-                });
-            });
-
-            messageDiv.appendChild(container);
-        }
-
-        async function submitFeedback(interactionId, rating, container, statusEl) {
-            if (!interactionId || !rating || !container) return;
-            if (container.dataset.submitted === 'true') return;
-
-            try {
-                const response = await fetch('/feedback', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        interaction_id: interactionId,
-                        rating: rating,
-                        comment: null
-                    })
-                });
-
-                const result = await response.json();
-                if (result.success) {
-                    container.dataset.submitted = 'true';
-                    if (statusEl) {
-                        statusEl.textContent = 'Thanks for your feedback!';
-                        statusEl.className = 'feedback-status success';
-                    }
-                } else {
-                    if (statusEl) {
-                        statusEl.textContent = 'Could not save feedback.';
-                        statusEl.className = 'feedback-status error';
-                    }
-                }
             } catch (err) {
-                console.error('Feedback error:', err);
-                if (statusEl) {
-                    statusEl.textContent = 'Error sending feedback.';
-                    statusEl.className = 'feedback-status error';
-                }
+                removeTyping(typingId);
+                appendMessage('assistant', 'Connection error. Please check your network.', false);
+                console.error(err);
             }
         }
 
+        // --- Admin Functions ---
+
+        async function handleUpload(e) {
+            e.preventDefault();
+            const input = document.getElementById('file-input');
+            const file = input.files[0];
+            if (!file) return;
+
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            // Change button text to show loading
+            const btn = e.target.querySelector('button[type="submit"]');
+            const originalText = btn.textContent;
+            btn.textContent = "Uploading...";
+            btn.disabled = true;
+
+            try {
+                const res = await fetch('/upload', { method:'POST', body: formData });
+                const data = await res.json();
+                if (data.success) {
+                    alert("Upload Successful!");
+                    document.getElementById('upload-modal').style.display = 'none';
+                    location.reload(); 
+                } else {
+                    alert("Upload Failed: " + (data.message || data.error));
+                }
+            } catch(err) {
+                alert("Upload Error: " + err);
+            } finally {
+                btn.textContent = originalText;
+                btn.disabled = false;
+            }
+        }
+
+        async function handleCreateUser(e) {
+            e.preventDefault();
+            const username = document.getElementById('new-username').value;
+            const password = document.getElementById('new-password').value;
+            const role = document.getElementById('new-role').value;
+
+            try {
+                const res = await fetch('/admin/users', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ username, password, role })
+                });
+                const data = await res.json();
+                if(data.success) {
+                    alert("User Created!");
+                    document.getElementById('user-modal').style.display = 'none';
+                } else {
+                    alert("Error: " + data.error);
+                }
+            } catch(err) {
+                alert("Request Error");
+            }
+        }
+
+        async function handleOpenDatasets() {
+            document.getElementById('dataset-modal').style.display = 'flex';
+            await loadDatasets();
+        }
+
+        async function loadDatasets() {
+            const listEl = document.getElementById('dataset-list');
+            listEl.innerHTML = '<div class="dataset-item-loading">Loading...</div>';
+            
+            try {
+                const res = await fetch('/datasets');
+                const data = await res.json();
+                if (data.success) {
+                    renderDatasetList(data.datasets, data.active_dataset);
+                } else {
+                    listEl.innerHTML = '<div style="color:var(--error-color)">Failed to load datasets</div>';
+                }
+            } catch(e) {
+                listEl.innerHTML = '<div style="color:var(--error-color)">Connection error</div>';
+            }
+        }
+
+        function renderDatasetList(datasets, active) {
+            const listEl = document.getElementById('dataset-list');
+            listEl.innerHTML = '';
+
+            if (datasets.length === 0) {
+                 listEl.innerHTML = '<div style="padding:1rem; text-align:center; color:var(--text-secondary)">No datasets found. Upload one!</div>';
+                 return;
+            }
+
+            datasets.forEach(ds => {
+                const div = document.createElement('div');
+                const isActive = active && active.table_name === ds.table_name;
+                div.className = 'dataset-item ' + (isActive ? 'active' : '');
+                div.style.cssText = `
+                    padding: 1rem;
+                    border: 1px solid var(--border-color);
+                    border-radius: 6px;
+                    margin-bottom: 0.5rem;
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    background-color: ${isActive ? 'rgba(16, 163, 127, 0.1)' : 'transparent'};
+                    cursor: pointer;
+                    transition: all 0.2s;
+                `;
+                if(isActive) div.style.borderColor = 'var(--accent-color)';
+                
+                div.onclick = () => selectDataset(ds.table_name);
+
+                div.innerHTML = `
+                    <div>
+                        <div style="font-weight:600; color:var(--text-primary)">${escapeHtml(ds.original_filename)}</div>
+                        <div style="font-size:0.85rem; color:var(--text-secondary)">
+                            ${ds.row_count} rows • ${new Date(ds.upload_date).toLocaleDateString()}
+                        </div>
+                    </div>
+                    ${isActive ? '<span style="color:var(--accent-color); font-weight:bold;">Active</span>' : ''}
+                `;
+                listEl.appendChild(div);
+            });
+        }
+
+        async function selectDataset(tableName) {
+            try {
+                const res = await fetch('/datasets/active', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ table_name: tableName })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    // Refresh list to show new active
+                    await loadDatasets();
+                    // Optional: Close modal automatically? No, let user verify.
+                    // alert("Active dataset updated: " + data.active_dataset.original_filename); 
+                    // Refresh background page content? 
+                    // Maybe just update welcome message or something.
+                } else {
+                    alert("Failed to set active dataset: " + data.error);
+                }
+            } catch(e) {
+                alert("Error setting active dataset");
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
     </script>
 </body>
 </html>
