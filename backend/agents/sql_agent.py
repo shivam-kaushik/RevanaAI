@@ -60,6 +60,12 @@ class SQLAgent:
             if not active_table:
                 return None, "No active dataset. Please upload a CSV file first."
 
+            # --- Auto-fix schema types if needed (One-time check per session/table could be better, but doing it here for safety) ---
+            try:
+                self._ensure_date_columns_are_typed(active_table)
+            except Exception as e:
+                logger.warning(f"⚠️ Auto-fixing date columns failed: {e}")
+
             # Detect anomaly/unusual pattern queries - generate aggregation SQL (optionally by group like category/product)
             anomaly_keywords = ["anomal", "outlier", "unusual", "drop", "spike", "irregular", "abnormal", "unexpected"]
             uq_lower = user_query.lower()
@@ -558,9 +564,6 @@ class SQLAgent:
             logger.error(f"❌ SQL_AGENT Error: {e}")
             return None, f"Error generating SQL: {str(e)}"
 
-    # -------------------------------------------------------------------------
-    # GPT fallback path
-    # -------------------------------------------------------------------------
     def _generate_sql_with_gpt(self, user_query, active_table, schema_info, schema_context):
         """GPT-based SQL generation used only as fallback."""
         system_prompt = f"""
@@ -597,11 +600,16 @@ class SQLAgent:
         s = sql_query.strip()
         if s.startswith("```"):
             s = s.strip("`")
-            s = s.replace("sql\n", "").replace("SQL\n", "")
+            s = s.replace("sql\\n", "").replace("SQL\\n", "")
+        
+        # New safety: remove any potential explaining text after the semicolon
+        if ";" in s:
+            s = s.split(";")[0] + ";"
+            
         return s.strip()
 
     def _get_table_schema(self, table_name):
-        """Get table schema information from information_schema."""
+        """Get table schema information from information_schema with type hints."""
         try:
             query = f"""
                 SELECT column_name, data_type
@@ -610,9 +618,28 @@ class SQLAgent:
                 ORDER BY ordinal_position
             """
             columns_info = db_manager.execute_query_dict(query)
-            schema_description = f"Table: {table_name}\nColumns:\n"
+            schema_description = f"Table: {table_name}\\nColumns:\\n"
+            
             for row in columns_info:
-                schema_description += f"- {row['column_name']} ({row['data_type']})\n"
+                col_name = row['column_name']
+                data_type = row['data_type']
+                hint = ""
+                
+                # If text column looks like a date, sample it to give a hint
+                if 'text' in data_type.lower() or 'char' in data_type.lower():
+                    if any(k in col_name.lower() for k in ['date', 'time', 'day', 'month', 'year']):
+                        # Sample
+                        try:
+                            # Use execute_query_dict from global db_manager
+                            sample_q = f"SELECT {col_name} FROM {table_name} WHERE {col_name} IS NOT NULL LIMIT 1"
+                            sample_res = db_manager.execute_query_dict(sample_q)
+                            if sample_res:
+                                val = str(sample_res[0][col_name])
+                                hint = f" -- likely DATE content, sample: '{val}'"
+                        except:
+                            pass
+                            
+                schema_description += f"- {col_name} ({data_type}){hint}\\n"
             return schema_description
         except Exception as e:
             logger.error(f"Schema retrieval error: {e}")
@@ -632,8 +659,45 @@ class SQLAgent:
 
         return sql_query
 
-
-
-
-
-
+    def _ensure_date_columns_are_typed(self, table_name: str):
+        """
+        Inspects the table for columns that look like dates but are TEXT,
+        and converts them to proper DATE/TIMESTAMP types in the database.
+        """
+        try:
+            # 1. Get text columns
+            cols = db_manager.execute_query_dict(
+                f"SELECT column_name FROM information_schema.columns WHERE table_name = '{table_name}' AND data_type IN ('text', 'character varying', 'varchar')"
+            )
+            text_cols = [c['column_name'] for c in cols]
+            
+            for col in text_cols:
+                # heuristic: name contains 'date' or 'time'
+                if any(x in col.lower() for x in ['date', 'time', 'day', 'month', 'year']):
+                    # Check sample
+                    sample = db_manager.execute_query_dict(f"SELECT {col} FROM {table_name} WHERE {col} IS NOT NULL LIMIT 1")
+                    if not sample:
+                        continue
+                    val = str(sample[0][col])
+                    
+                    # Detect format and alter
+                    alter_sql = None
+                    if '/' in val and ':' in val: # 12/1/2010 8:26 (MM/DD/YYYY HH:MM)
+                        alter_sql = f"ALTER TABLE {table_name} ALTER COLUMN {col} TYPE TIMESTAMP USING TO_TIMESTAMP({col}, 'MM/DD/YYYY HH24:MI')"
+                    elif '/' in val and len(val.split('/')) == 3: # 12/1/2010
+                         parts = val.split('/')
+                         # basic check: if first part > 12, likely DD/MM/YYYY
+                         fmt = 'MM/DD/YYYY'
+                         if parts[0].isdigit() and int(parts[0]) > 12: 
+                             fmt = 'DD/MM/YYYY'
+                         alter_sql = f"ALTER TABLE {table_name} ALTER COLUMN {col} TYPE DATE USING TO_DATE({col}, '{fmt}')"
+                    elif '-' in val and len(val) >= 10: # 2023-11-24
+                        alter_sql = f"ALTER TABLE {table_name} ALTER COLUMN {col} TYPE DATE USING {col}::date"
+                    
+                    if alter_sql:
+                        logger.info(f"🔧 Auto-converting column {col} to proper type...")
+                        db_manager.execute_non_query(alter_sql)
+                        logger.info(f"✅ Converted {col} successfully.")
+                        
+        except Exception as e:
+            logger.warning(f"Could not checking/fixing types for {table_name}: {e}")

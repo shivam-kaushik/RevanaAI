@@ -11,7 +11,7 @@ class Config:
         "DATABASE_URL", "postgresql://postgres:Password1!@localhost:5432/Revana")
 
     # OpenAI
-    OPENAI_API_KEY = ""  # Default for testing
+    OPENAI_API_KEY = "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"  # Default for testing
     # Application
     HOST = os.getenv("HOST", "localhost")
     PORT = int(os.getenv("PORT", 8000))
