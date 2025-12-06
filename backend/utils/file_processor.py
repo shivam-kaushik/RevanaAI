@@ -280,12 +280,12 @@ class FileProcessor:
             row_count = row_result.iloc[0]['count'] if not row_result.empty else 0
             
             # Get column count and names
-            column_query = """
+            column_query = f"""
                 SELECT column_name 
                 FROM information_schema.columns 
-                WHERE table_name = %s AND table_schema = 'public'
+                WHERE table_name = '{table_name}' AND table_schema = 'public'
             """
-            column_result = db_manager.execute_query(column_query, (table_name,))
+            column_result = db_manager.execute_query(column_query)
             column_count = len(column_result) if not column_result.empty else 0
             columns = column_result['column_name'].tolist() if not column_result.empty else []
             

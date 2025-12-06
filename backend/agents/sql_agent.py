@@ -206,7 +206,50 @@ class SQLAgent:
                 # Fallback: None (no grouping available)
                 return None
 
-            if is_anomaly:
+                # Fallback: None (no grouping available)
+                return None
+
+            # Detect correlation/scatter intent
+            correlation_keywords = ["correlation", "scatter", "relationship", "vs", "versus"]
+            is_correlation = any(keyword in uq_lower for keyword in correlation_keywords)
+            
+            if is_correlation and not is_anomaly:
+                logger.info("📈 Detected correlation/scatter query - identifying columns")
+                
+                cols = _get_table_columns()
+                col_names = [c['column_name'] for c in cols]
+                
+                # Identify numeric columns mentioned in query
+                mentioned_cols = []
+                for col in col_names:
+                    # Check partial matches too, e.g. "price" matches "unitprice"
+                    if col.lower() in uq_lower or col.lower().replace('_', '') in uq_lower.replace(' ', ''):
+                        # Verify it's numeric
+                        col_info = next((c for c in cols if c['column_name'] == col), None)
+                        if col_info and any(t in col_info['data_type'].lower() for t in ['int', 'numeric', 'float', 'double', 'real', 'decimal']):
+                             mentioned_cols.append(col)
+                    # Handle "price" -> "unitprice" mapping specifically if needed
+                    elif "price" in uq_lower and "price" in col.lower():
+                         col_info = next((c for c in cols if c['column_name'] == col), None)
+                         if col_info and any(t in col_info['data_type'].lower() for t in ['int', 'numeric', 'float', 'double', 'real']):
+                             mentioned_cols.append(col)
+                
+                # Remove duplicates
+                mentioned_cols = list(set(mentioned_cols))
+                
+                if len(mentioned_cols) >= 2:
+                    col1 = mentioned_cols[0]
+                    col2 = mentioned_cols[1]
+                    logger.info(f"📍 Found correlation columns: {col1}, {col2}")
+                    
+                    sql = f"""
+                    SELECT {col1}, {col2}
+                    FROM {active_table}
+                    WHERE {col1} IS NOT NULL AND {col2} IS NOT NULL
+                    LIMIT 1000;
+                    """
+                    logger.info(f"✅ Generated Scatter Data SQL: {sql}")
+                    return sql, None
                 logger.info("🚨 Detected anomaly query - generating monthly aggregation SQL")
                 
                 # Detect column names and types from schema
@@ -534,6 +577,28 @@ class SQLAgent:
                             sql_query = m.group(0).strip()
 
                     logger.info(f"🧪 Qwen cleaned candidate: {sql_query}")
+
+                    # --- FIX: Force active table name ---
+                    # LLMs often hallucinate the table name timestamp or suffix.
+                    # We simply replace whatever follows FROM with the correct active_table.
+                    if active_table:
+                        # Regex to find FROM table_name (case insensitive)
+                        # Avoid replacing FROM inside EXTRACT(YEAR FROM ...) or substring(.. from ..)
+                        # We use a callback to check the preceding word
+                        def replace_from(match):
+                            preceding = match.group(1) or ""
+                            # If preceded by a date part (common in EXTRACT), don't replace
+                            if preceding.upper() in ['YEAR', 'MONTH', 'DAY', 'HOUR', 'MINUTE', 'SECOND', 'DOY', 'DOW', 'QUARTER', 'WEEK']:
+                                return match.group(0) # No change
+                            return f"{preceding} FROM {active_table}"
+
+                        # Capture the word before FROM (if any) and FROM
+                        sql_query = re.sub(
+                            r"(?i)(\w+\s+)?\bFROM\s+([a-zA-Z0-9_]+)", 
+                            replace_from, 
+                            sql_query
+                        )
+                        logger.info(f"🔧 Table name post-processed: {sql_query}")
 
                     validated_sql = self._validate_sql(sql_query)
                     if validated_sql:

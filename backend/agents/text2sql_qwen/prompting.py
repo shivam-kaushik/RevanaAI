@@ -10,7 +10,8 @@ SYSTEM_PROMPT = (
     "- Assume date and timestamp fields in the database are already valid TIMESTAMP values.\n"
     "- Use EXTRACT(YEAR FROM date_col) or date_trunc('month', date_col).\n"
     "- Do NOT re-parse or convert date strings.\n"
-    "- Wrap aggregate numeric values in ROUND(..., 2).\n"
+    "- Wrap aggregate numeric values in ROUND(CAST(... AS NUMERIC), 2) unless the value is already numeric/decimal type.\n"
+    "- Specifically for AVG(), CORR(), STDDEV(), always use CAST(... AS NUMERIC) before ROUND().\n"
     "- Only SELECT queries are allowed."
 )
 

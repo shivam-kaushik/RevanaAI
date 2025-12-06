@@ -11,9 +11,10 @@ if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
 # FastAPI deps
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, HTTPException, UploadFile, File, Request, Form, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, HTMLResponse
+from fastapi.responses import FileResponse, JSONResponse, HTMLResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 # --- NEW: imports needed for ForecastAgent wiring ---
@@ -154,31 +155,78 @@ class ChatResponse(BaseModel):
     statistics: dict | None = None  # Anomaly detection statistics
 
 
-@app.get("/", response_class=HTMLResponse)
-async def root():
-    """Serve the main frontend"""
-    try:
-        frontend_path = os.path.join(parent_dir, 'frontend', 'templates', 'index.html')
-        if os.path.exists(frontend_path):
-            return FileResponse(frontend_path)
-    except:
-        pass
+# --- Authentication & Templates Support ---
+templates = Jinja2Templates(directory=os.path.join(parent_dir, 'frontend', 'templates'))
 
-    html_content = """
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Agentic Sales Assistant</title>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    </head>
-    <body>
-        <h1>Agentic Sales Assistant</h1>
-        <p>Please use the main application interface.</p>
-    </body>
-    </html>
-    """
-    return HTMLResponse(content=html_content)
+# Simple in-memory user store (in production, use a database)
+USERS = {
+    "admin": {"username": "admin", "password": "admin123", "role": "admin"},
+    "sales": {"username": "sales", "password": "sales123", "role": "sales"},
+    "customer": {"username": "customer", "password": "customer123", "role": "customer"}
+}
+
+def get_current_user(request: Request):
+    """Get user from cookie"""
+    username = request.cookies.get("active_user")
+    if username and username in USERS:
+        return USERS[username]
+    return None
+
+@app.get("/", response_class=HTMLResponse)
+async def root(request: Request):
+    """Serve the main frontend with role-based context"""
+    user = get_current_user(request)
+    role = user["role"] if user else None
+    
+    return templates.TemplateResponse("index.html", {
+        "request": request,
+        "user": user,
+        "role": role
+    })
+
+@app.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request):
+    return templates.TemplateResponse("login.html", {"request": request})
+
+@app.post("/login")
+async def login(request: Request, username: str = Form(...), password: str = Form(...)):
+    user = USERS.get(username)
+    if not user or user["password"] != password:
+        return templates.TemplateResponse("login.html", {
+            "request": request,
+            "error": "Invalid username or password"
+        })
+    
+    response = RedirectResponse(url="/", status_code=302)
+    response.set_cookie(key="active_user", value=username)
+    return response
+
+@app.get("/logout")
+async def logout():
+    response = RedirectResponse(url="/login")
+    response.delete_cookie("active_user")
+    return response
+
+class CreateUserRequest(BaseModel):
+    username: str
+    password: str
+    role: str
+
+@app.post("/admin/users")
+async def create_user(user_req: CreateUserRequest, request: Request):
+    current_user = get_current_user(request)
+    if not current_user or current_user["role"] != "admin":
+        return {"success": False, "error": "Unauthorized"}
+    
+    if user_req.username in USERS:
+        return {"success": False, "error": "User already exists"}
+    
+    USERS[user_req.username] = {
+        "username": user_req.username,
+        "password": user_req.password,
+        "role": user_req.role
+    }
+    return {"success": True, "message": f"User {user_req.username} created"}
 
 @app.get("/health")
 async def health_check():
@@ -825,8 +873,8 @@ def build_final_response(insights, forecasts, anomalies, data_results, user_quer
             if 'summary' in anomalies:
                 # New anomaly format with plot
                 response_parts.append(f"🚨 **Anomaly Detection:**\n{anomalies['summary']}")
-                if anomalies.get('plot_html'):
-                    response_parts.append(f"**Visualization:**\n{anomalies['plot_html']}")
+                # if anomalies.get('plot_html'):
+                #    response_parts.append(f"**Visualization:**\n{anomalies['plot_html']}")
                 if anomalies.get('anomalies'):
                     anomaly_count = len(anomalies['anomalies'])
                     response_parts.append(f"\n**Found {anomaly_count} anomalous periods**")
