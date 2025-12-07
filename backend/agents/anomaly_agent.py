@@ -251,6 +251,15 @@ class AnomalyAgent:
                     'error': 'No valid data after cleaning.'
                 }
 
+            # Aggregate to Monthly level if data spans more than 60 days
+            # This fixes "messy" graphs when plotting raw transactions
+            date_range = df[time_column].max() - df[time_column].min()
+            if date_range.days > 60:
+                logger.info("📅 Aggregating data to Monthly frequency for Analysis")
+                df['__month'] = df[time_column].dt.to_period('M').dt.to_timestamp()
+                df = df.groupby([category_column, '__month'])[value_column].sum().reset_index()
+                df = df.rename(columns={'__month': time_column})
+
             # Sort for stability
             df = df.sort_values([category_column, time_column]).reset_index(drop=True)
 

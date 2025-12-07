@@ -285,10 +285,22 @@
                     if (data.plot_html) {
                         finalHtml += `<div style="margin-top:1rem; border:1px solid var(--border-color); border-radius:8px; padding:10px; background:white; color:black;">${data.plot_html}</div>`;
                     }
-                    if (data.charts && data.charts.length > 0) { // Legacy support
-                         data.charts.forEach(chart => {
-                            finalHtml += `<img src="data:image/png;base64,${chart}" style="max-width:100%; margin-top:1rem; border-radius:8px;">`;
-                         });
+                    
+                    // Handle charts - can be array or object
+                    if (data.charts) {
+                        if (Array.isArray(data.charts)) {
+                            // Legacy array format
+                            data.charts.forEach(chart => {
+                                finalHtml += `<img src="data:image/png;base64,${chart}" style="max-width:100%; margin-top:1rem; border-radius:8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">`;
+                            });
+                        } else if (typeof data.charts === 'object') {
+                            // New object format: {pie: "base64...", bar: "base64...", etc}
+                            Object.entries(data.charts).forEach(([chartType, chartData]) => {
+                                if (chartData) {
+                                    finalHtml += `<div style="margin-top:1rem;"><h4 style="color: var(--text-primary); margin-bottom:0.5rem;">${chartType.charAt(0).toUpperCase() + chartType.slice(1)} Chart</h4><img src="data:image/png;base64,${chartData}" style="max-width:100%; border-radius:8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);"></div>`;
+                                }
+                            });
+                        }
                     }
 
                     appendMessage('assistant', finalHtml, true);

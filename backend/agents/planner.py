@@ -16,12 +16,13 @@ class PlannerAgent:
             "VECTOR_AGENT": "Performs semantic search for products and customers"
         }
     
-    def create_plan(self, user_query):
+    def create_plan(self, user_query, has_active_dataset=None):
         """Create an execution plan based on user query"""
         print(f"🔍 Planning for query: {user_query}")
         
-        # Check if we have an active dataset
-        has_active_dataset = vector_db.get_active_dataset() is not None
+        # Check if we have an active dataset (use provided value or check vector_db)
+        if has_active_dataset is None:
+            has_active_dataset = vector_db.get_active_dataset() is not None
         
         # Step 1: Detect intent
         intent_result = self.intent_detector.detect_intent(user_query, has_active_dataset)

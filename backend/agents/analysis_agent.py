@@ -1,6 +1,7 @@
 import logging
 import matplotlib.pyplot as plt
 import io
+import pandas as pd
 import base64
 import json
 from datetime import datetime, date
@@ -14,10 +15,17 @@ logger = logging.getLogger(__name__)
 class AnalysisAgent:
     def __init__(self):
         self.client = OpenAI(api_key=Config.OPENAI_API_KEY)
+
+    def _ensure_list_of_dicts(self, data):
+        """Helper to ensure data is list of dicts (handles DataFrame ambiguity)"""
+        if isinstance(data, pd.DataFrame):
+            return data.to_dict('records')
+        return data
     
     def generate_insights(self, user_query, data_rows, context=""):
-        """Generate insights and narratives from data (data_rows: list[dict])"""
+        """Generate insights and narratives from data (data_rows: list[dict] or pd.DataFrame)"""
         try:
+            data_rows = self._ensure_list_of_dicts(data_rows)
             logger.info(f"🤖 ANALYSIS_AGENT: Generating insights for query: {user_query}")
             
             # Prepare data context
@@ -66,6 +74,7 @@ class AnalysisAgent:
     def create_visualization(self, user_query, data_rows, chart_type=None):
         """Create visualization based on user intent and data"""
         try:
+            data_rows = self._ensure_list_of_dicts(data_rows)
             logger.info(f"🎨 ANALYSIS_AGENT: Creating {chart_type or 'auto-detected'} chart")
             
             if not data_rows:

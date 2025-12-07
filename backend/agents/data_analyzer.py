@@ -240,7 +240,7 @@ class DataAnalyzer:
     
     def should_generate_trend_chart(self, user_query, rows):
         """Check if trend chart is appropriate"""
-        time_keywords = ['trend', 'over time', 'monthly', 'weekly', 'daily', 'growth']
+        time_keywords = ['line', 'line chart', 'trend', 'over time', 'monthly', 'weekly', 'daily', 'growth']
         if not rows:
             return False
         date_columns = [col for col in rows[0].keys() if 'date' in col.lower()]
@@ -248,7 +248,7 @@ class DataAnalyzer:
     
     def should_generate_bar_chart(self, user_query, rows):
         """Check if bar chart is appropriate"""
-        bar_keywords = ['compare', 'by category', 'top', 'ranking', 'by']
+        bar_keywords = ['bar', 'bar chart', 'compare', 'by category', 'top', 'ranking', 'by']
         if not rows:
             return False
         categorical_columns = [k for k, v in rows[0].items() if isinstance(v, str)]
@@ -258,7 +258,7 @@ class DataAnalyzer:
     
     def should_generate_pie_chart(self, user_query, rows):
         """Check if pie chart is appropriate"""
-        pie_keywords = ['percentage', 'share', 'distribution', 'proportion']
+        pie_keywords = ['pie', 'pie chart', 'percentage', 'share', 'distribution', 'proportion']
         return any(keyword in user_query.lower() for keyword in pie_keywords)
     
     def should_generate_distribution_chart(self, user_query, rows):

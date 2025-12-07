@@ -95,7 +95,7 @@ class VizTool:
             fc_future[["ds","yhat","yhat_lower","yhat_upper"]]
         ], ignore_index=True)
 
-        fig, ax = plt.subplots(figsize=(10, 6))
+        fig, ax = plt.subplots(figsize=(18, 8))
 
         # 1) Full history
         ax.plot(hist_df["ds"], hist_df["y"], linewidth=2, label="Actual (Monthly)")
@@ -119,7 +119,7 @@ class VizTool:
         fig.tight_layout()
 
         out = os.path.join(self.output_dir, f"combined_{tag}.png")
-        fig.savefig(out, dpi=100)
+        fig.savefig(out, dpi=200)
         plt.close(fig)
         return self._web_path(out)
     

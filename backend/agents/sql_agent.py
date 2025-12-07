@@ -250,6 +250,7 @@ class SQLAgent:
                     """
                     logger.info(f"✅ Generated Scatter Data SQL: {sql}")
                     return sql, None
+            if is_anomaly:
                 logger.info("🚨 Detected anomaly query - generating monthly aggregation SQL")
                 
                 # Detect column names and types from schema
@@ -588,7 +589,7 @@ class SQLAgent:
                         def replace_from(match):
                             preceding = match.group(1) or ""
                             # If preceded by a date part (common in EXTRACT), don't replace
-                            if preceding.upper() in ['YEAR', 'MONTH', 'DAY', 'HOUR', 'MINUTE', 'SECOND', 'DOY', 'DOW', 'QUARTER', 'WEEK']:
+                            if preceding.strip().upper() in ['YEAR', 'MONTH', 'DAY', 'HOUR', 'MINUTE', 'SECOND', 'DOY', 'DOW', 'QUARTER', 'WEEK']:
                                 return match.group(0) # No change
                             return f"{preceding} FROM {active_table}"
 

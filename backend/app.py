@@ -29,6 +29,7 @@ from backend.agents.planner import PlannerAgent
 from backend.agents.sql_agent import SQLAgent
 from backend.agents.analysis_agent import AnalysisAgent
 from backend.agents.anomaly_agent import AnomalyAgent
+from backend.agents.data_analyzer import DataAnalyzer
 from backend.utils.file_processor import FileProcessor
 from backend.utils.vector_db import vector_db
 from backend.config import Config
@@ -88,6 +89,7 @@ planner = PlannerAgent()
 sql_agent = SQLAgent()
 analysis_agent = AnalysisAgent()
 anomaly_agent = AnomalyAgent()
+data_analyzer = DataAnalyzer()
 file_processor = FileProcessor()
 openai_client = OpenAI(api_key=Config.OPENAI_API_KEY)
 vector_agent = VectorAgent()
@@ -550,7 +552,13 @@ async def chat_endpoint(request: ChatRequest):
     try:
         logger.info(f"Processing query: {request.message}")
 
+        # Ensure we have an active dataset (auto-load if needed)
         has_active_dataset = dataset_manager.has_active_dataset()
+        if not has_active_dataset:
+            logger.info("🔄 No active dataset, attempting auto-load...")
+            dataset_manager.auto_set_latest_dataset()
+            has_active_dataset = dataset_manager.has_active_dataset()
+        
         active_dataset_info = dataset_manager.get_active_dataset()
         try:
             if active_dataset_info and active_dataset_info.get('table_name'):
@@ -558,7 +566,12 @@ async def chat_endpoint(request: ChatRequest):
         except Exception as sync_err:
             logger.warning(f"Could not sync vector_db active dataset: {sync_err}")
 
-        plan = planner.create_plan(request.message)
+        # Pass has_active_dataset to planner so it doesn't rely on vector_db sync
+        plan = planner.create_plan(request.message, has_active_dataset=has_active_dataset)
+        
+        # Enhanced logging for debugging
+        logger.info(f"🔍 Plan created - is_data_query: {plan.get('is_data_query')}, has_active_dataset: {has_active_dataset}, planner_has_dataset: {plan.get('has_active_dataset')}")
+        logger.info(f"🔍 Required agents: {plan.get('required_agents')}")
 
         if not plan.get('has_active_dataset', False) and has_active_dataset:
             logger.info("🔄 Overriding planner: We have active dataset but planner doesn't know!")
@@ -582,6 +595,7 @@ async def chat_endpoint(request: ChatRequest):
             )
 
         is_data_query = plan.get('is_data_query', False) and has_active_dataset
+        logger.info(f"🎯 Final routing decision - is_data_query: {is_data_query}, will use: {'AGENTS' if is_data_query else 'CHATGPT'}")
 
         if is_data_query:
             active_dataset_fresh = dataset_manager.get_active_dataset(force_refresh=True)
@@ -604,6 +618,7 @@ async def chat_endpoint(request: ChatRequest):
             plot_html = None
             grouped = False
             statistics = None
+            charts = None
 
         response_dict = {
             "response": results['final_response'],
@@ -655,6 +670,10 @@ async def execute_agent_plan(plan, has_database_tables):
     insights = ""
     forecasts = ""
     anomalies = ""
+    charts = None
+    plot_html = None
+    grouped = False
+    statistics = None
 
     active_dataset = dataset_manager.get_active_dataset(force_refresh=True)
     if active_dataset and active_dataset.get('table_name'):
@@ -713,6 +732,27 @@ async def execute_agent_plan(plan, has_database_tables):
                 return {'final_response': f"❌ Forecast error: {str(e)}"}
         # -------------------------------------------------------------
 
+        elif agent_name == "VISUALIZATION_AGENT":
+            if data_results is None or data_results.empty:
+                logger.warning("⚠️ VISUALIZATION_AGENT called but no data available! Skipping...")
+            else:
+                logger.info(f"📊 VISUALIZATION_AGENT: Generating charts for {len(data_results)} rows")
+                try:
+                    # Convert DataFrame to list of dicts for generate_charts method
+                    data_rows = data_results.to_dict('records')
+                    
+                    # Generate charts using the DataAnalyzer
+                    chart_results = data_analyzer.generate_charts(user_query, data_rows)
+                    if chart_results:
+                        charts = chart_results
+                        logger.info(f"✅ Generated charts successfully")
+                    else:
+                        logger.warning("⚠️ No charts generated")
+                except Exception as e:
+                    logger.error(f"❌ Visualization error: {e}")
+                    import traceback
+                    traceback.print_exc()
+
         elif agent_name == "ANOMALY_AGENT":
             if data_results is None:
                 logger.warning("⚠️ ANOMALY_AGENT called but no data available! Skipping...")
@@ -749,14 +789,10 @@ async def execute_agent_plan(plan, has_database_tables):
                     anomalies = {'message': f'Error detecting anomalies: {str(e)}'}
     
     # Combine results into final response
+    logger.info("🛠️ All agents finished. Building final response...")
     final_response = build_final_response(insights, forecasts, anomalies, data_results, user_query)
-    # ----------------------------------------------------------------
-    
-    charts = {}
-    plot_html = None
-    grouped = False
-    statistics = None
-    
+    logger.info("✅ Final response built.")
+
     # Extract anomaly plot if available
     if isinstance(anomalies, dict) and anomalies.get('plot_html'):
         plot_html = anomalies['plot_html']
@@ -772,6 +808,8 @@ async def execute_agent_plan(plan, has_database_tables):
         # 1) Prefer base64 from the agent (no need to hit disk)
         combined_b64 = plots.get("combined_base64")
         if combined_b64:
+            if charts is None:
+                charts = {}
             charts["forecast_combined"] = combined_b64
         else:
             # 2) Fallback: use PNG path + _png_to_base64 (old behavior)
@@ -782,6 +820,8 @@ async def execute_agent_plan(plan, has_database_tables):
                     fs_path = os.path.join(parent_dir, "frontend", fs_path)
                 elif fs_path.startswith("/static/"):
                     fs_path = os.path.join(parent_dir, "frontend", fs_path[1:])
+                if charts is None:
+                    charts = {}
                 charts["forecast_combined"] = _png_to_base64(fs_path)
     
     if data_results is not None:
