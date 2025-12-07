@@ -758,6 +758,29 @@ async def execute_agent_plan(plan, has_database_tables):
                 logger.warning("⚠️ ANOMALY_AGENT called but no data available! Skipping...")
                 anomalies = {'message': 'No data available for anomaly detection. Please ensure SQL_AGENT runs first.'}
             else:
+                # Check if data has a date column - required for anomaly detection
+                date_col = anomaly_agent._auto_detect_date_column(data_results)
+                
+                if not date_col:
+                    logger.warning("⚠️ No date column found for anomaly detection. Regenerating SQL query with date...")
+                    # Regenerate SQL query with explicit instruction to include dates
+                    enhanced_query = f"{user_query} (include date column and time-series data for anomaly analysis)"
+                    sql_query_enhanced, error = sql_agent.generate_sql(enhanced_query)
+                    
+                    if sql_query_enhanced and not error:
+                        try:
+                            from backend.utils.database import db_manager
+                            data_results = db_manager.execute_query(sql_query_enhanced)
+                            logger.info(f"✅ Enhanced SQL query executed: {len(data_results)} rows with date column")
+                        except Exception as e:
+                            logger.error(f"❌ Enhanced SQL execution error: {e}")
+                            anomalies = {'message': f'Anomaly detection requires time-series data with dates. Error: {str(e)}'}
+                            continue
+                    else:
+                        anomalies = {'message': 'Anomaly detection requires time-series data with a date column. Please rephrase your query to include dates.'}
+                        logger.warning("⚠️ Could not regenerate SQL with date column")
+                        continue
+                
                 # Detect anomalies with visualization (now with auto-detection)
                 logger.info(f"🚨 Running anomaly detection on {len(data_results)} rows...")
                 try:

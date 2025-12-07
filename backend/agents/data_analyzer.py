@@ -278,27 +278,44 @@ class DataAnalyzer:
             date_col = next((col for col in rows[0].keys() if 'date' in col.lower()), None)
             value_col = self._first_numeric_column(rows)
             
+            logger.info(f"📊 Trend chart - date_col: {date_col}, value_col: {value_col}, rows: {len(rows)}")
+            
             if date_col and value_col:
                 # Group by date and plot
                 series = defaultdict(float)
+                parsed_count = 0
                 for r in rows:
                     date_val = self._parse_date(r.get(date_col))
                     num_val = self._to_number(r.get(value_col))
                     if date_val is not None and num_val is not None:
                         series[date_val] += num_val
+                        parsed_count += 1
+                
+                logger.info(f"📊 Parsed {parsed_count} data points successfully")
+                
+                if not series:
+                    logger.warning(f"⚠️ No data parsed! Sample row: {rows[0] if rows else 'empty'}")
+                    return None
+                
                 xs = sorted(series.keys())
                 ys = [series[x] for x in xs]
-                plt.plot(xs, ys, marker='o', linewidth=2)
-                plt.title(f'Trend of {value_col} over time')
-                plt.xlabel(date_col)
-                plt.ylabel(value_col)
+                
+                logger.info(f"📊 Plotting {len(xs)} points")
+                
+                plt.plot(xs, ys, marker='o', linewidth=2, markersize=4)
+                plt.title(f'Trend of {value_col} over time', fontsize=14, fontweight='bold')
+                plt.xlabel(date_col, fontsize=12)
+                plt.ylabel(value_col, fontsize=12)
                 plt.xticks(rotation=45)
+                plt.grid(True, alpha=0.3)
                 plt.tight_layout()
                 
                 return self.plot_to_base64()
                 
         except Exception as e:
-            logger.error(f"Trend chart error: {e}")
+            logger.error(f"❌ Trend chart error: {e}")
+            import traceback
+            traceback.print_exc()
         return None
     
     def create_bar_chart(self, rows):
@@ -411,9 +428,19 @@ class DataAnalyzer:
     def _first_numeric_column(self, rows):
         if not rows:
             return None
+        
+        # Look for common numeric column names first
+        common_numeric = ['sum', 'total', 'amount', 'count', 'value', 'sales', 'revenue', 'quantity']
+        for name in common_numeric:
+            for k in rows[0].keys():
+                if name in k.lower():
+                    return k
+        
+        # Then check by type
         for k, v in rows[0].items():
             if isinstance(v, (int, float)):
                 return k
+        
         # Try to coerce numeric-looking strings
         for k, v in rows[0].items():
             if isinstance(v, str):
@@ -435,8 +462,12 @@ class DataAnalyzer:
         return None
 
     def _parse_date(self, v):
+        from datetime import date
+        
         if isinstance(v, datetime):
             return v
+        if isinstance(v, date):  # Handle date objects from database
+            return datetime.combine(v, datetime.min.time())
         if isinstance(v, str):
             # Try common date formats
             for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%d-%m-%Y", "%m/%d/%Y", "%Y-%m-%d %H:%M:%S"):
