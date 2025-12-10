@@ -135,7 +135,7 @@ class ForecastAgent:
             value_col = next((c for c in df.columns if c != date_col), None)
             out = df[[date_col, value_col]].rename(columns={date_col: "ds", value_col: "y"})
 
-        out["ds"] = pd.to_datetime(out["ds"], utc=True).dt.tz_localize(None)
+        out["ds"] = pd.to_datetime(out["ds"])
         out["y"] = pd.to_numeric(out["y"], errors="coerce")
         out = out.dropna(subset=["ds", "y"]).sort_values("ds")
         out["ds"] = out["ds"].values.astype("datetime64[M]")  # monthly

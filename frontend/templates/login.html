@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login – Agentic Sales Assistant</title>
+    <link rel="stylesheet" href="/static/css/main.css">
+    <style>
+        .auth-wrapper {
+            max-width: 400px;
+            margin: 50px auto;
+            padding: 30px;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+
+        .auth-title {
+            margin-bottom: 10px;
+            color: #333;
+        }
+
+        .auth-subtitle {
+            margin-bottom: 20px;
+            color: #666;
+        }
+
+        .auth-form-group {
+            margin-bottom: 15px;
+            text-align: left;
+        }
+
+        .auth-form-group label {
+            display: block;
+            margin-bottom: 5px;
+            color: #333;
+            font-weight: 500;
+        }
+
+        .auth-form-group input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+        }
+
+        .auth-form-group input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .auth-error {
+            background-color: #ffe6e6;
+            color: #cc0000;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+
+        .auth-role-hint {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 5px;
+            font-size: 14px;
+            color: #555;
+            text-align: left;
+        }
+    </style>
+</head>
+<body>
+    <div class="auth-wrapper">
+        <h1 class="auth-title">Sign in</h1>
+        <p class="auth-subtitle">Please enter your login details</p>
+
+        {% if error %}
+        <div class="auth-error">
+            {{ error }}
+        </div>
+        {% endif %}
+
+        <form method="post" action="/login">
+            <div class="auth-form-group">
+                <label for="username">Username</label>
+                <input id="username" name="username" type="text" required autofocus placeholder="Enter username">
+            </div>
+
+            <div class="auth-form-group">
+                <label for="password">Password</label>
+                <input id="password" name="password" type="password" required placeholder="Enter password">
+            </div>
+
+            <button type="submit" class="upload-btn" style="width: 100%; margin-top: 10px; background: linear-gradient(135deg, #667eea, #764ba2); color: white; border: none; padding: 12px; border-radius: 5px; cursor: pointer; font-size: 16px;">
+                Login
+            </button>
+
+            <div class="auth-role-hint">
+                <strong>Demo accounts:</strong><br>
+                • admin / admin123 – full access<br>
+                • sales / sales123 – chat only<br>
+                • customer / customer123 – chat only
+            </div>
+        </form>
+    </div>
+</body>
+</html>

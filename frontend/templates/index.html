@@ -3,1017 +3,480 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Agentic Sales Assistant</title>
+    <title>Revana AI - Sales Assistant</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            padding: 20px;
-        }
-
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            background: white;
-            border-radius: 15px;
-            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
-            overflow: hidden;
-        }
-
-        .header {
-            background: linear-gradient(135deg, #2c3e50, #34495e);
-            color: white;
-            padding: 30px;
-            text-align: center;
-        }
-
-        .header h1 {
-            font-size: 2.5em;
-            margin-bottom: 10px;
-        }
-
-        .header p {
-            opacity: 0.9;
-            font-size: 1.1em;
-        }
-
-        .main-content {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 0;
-            min-height: 600px;
-        }
-
-        .upload-section {
-            background: #f8f9fa;
-            padding: 30px;
-            border-right: 1px solid #e9ecef;
-        }
-
-        .chat-section {
-            padding: 30px;
-            display: flex;
-            flex-direction: column;
-        }
-
-        .upload-area {
-            border: 3px dashed #667eea;
-            border-radius: 10px;
-            padding: 40px 20px;
-            text-align: center;
-            background: #f8f9fa;
-            transition: all 0.3s ease;
-            margin-bottom: 20px;
-        }
-
-        .upload-area:hover {
-            border-color: #764ba2;
-            background: #e9ecef;
-        }
-
-        .upload-area.highlight {
-            border-color: #764ba2;
-            background: #e9ecef;
-        }
-
-        .upload-icon {
-            font-size: 3em;
-            color: #667eea;
-            margin-bottom: 15px;
-        }
-
-        .file-input {
-            display: none;
-        }
-
-        .upload-btn {
-            background: linear-gradient(135deg, #667eea, #764ba2);
-            color: white;
-            border: none;
-            padding: 12px 30px;
-            border-radius: 25px;
-            cursor: pointer;
-            font-size: 1em;
-            transition: transform 0.2s ease;
-            margin: 10px 0;
-        }
-
-        .upload-btn:hover {
-            transform: translateY(-2px);
-        }
-
-        .upload-btn:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-            transform: none;
-        }
-
-        .status-area {
-            margin-top: 20px;
-            padding: 15px;
-            border-radius: 8px;
-            background: white;
-            border-left: 4px solid #667eea;
-        }
-
-        .status-success {
-            border-left-color: #28a745;
-            background: #d4edda;
-            color: #155724;
-        }
-
-        .status-error {
-            border-left-color: #dc3545;
-            background: #f8d7da;
-            color: #721c24;
-        }
-
-        .status-info {
-            border-left-color: #17a2b8;
-            background: #d1ecf1;
-            color: #0c5460;
-        }
-
-        .chat-messages {
-            flex: 1;
-            overflow-y: auto;
-            padding: 20px;
-            background: #f8f9fa;
-            border-radius: 10px;
-            margin-bottom: 20px;
-            max-height: 500px;
-        }
-
-        .message {
-            margin-bottom: 15px;
-            padding: 15px;
-            border-radius: 10px;
-            max-width: 90%;
-        }
-
-        .user-message {
-            background: #667eea;
-            color: white;
-            margin-left: auto;
-        }
-
-        .assistant-message {
-            background: white;
-            border: 1px solid #e9ecef;
-            margin-right: auto;
-        }
-
-        .chat-input-area {
-            display: flex;
-            gap: 10px;
-        }
-
-        .chat-input {
-            flex: 1;
-            padding: 15px;
-            border: 2px solid #e9ecef;
-            border-radius: 25px;
-            font-size: 1em;
-            outline: none;
-            transition: border-color 0.3s ease;
-        }
-
-        .chat-input:focus {
-            border-color: #667eea;
-        }
-
-        .send-btn {
-            background: linear-gradient(135deg, #667eea, #764ba2);
-            color: white;
-            border: none;
-            padding: 15px 25px;
-            border-radius: 25px;
-            cursor: pointer;
-            transition: transform 0.2s ease;
-        }
-
-        .send-btn:hover:not(:disabled) {
-            transform: translateY(-2px);
-        }
-
-        .send-btn:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-        }
-
-        .agent-tag {
-            display: inline-block;
-            background: #764ba2;
-            color: white;
-            padding: 2px 8px;
-            border-radius: 12px;
-            font-size: 0.8em;
-            margin-right: 5px;
-        }
-
-        .dataset-info {
-            background: #e9ecef;
-            padding: 15px;
-            border-radius: 8px;
-            margin-top: 15px;
-            font-size: 0.9em;
-        }
-
-        .typing-indicator {
-            display: inline-block;
-            padding: 10px 15px;
-            background: white;
-            border: 1px solid #e9ecef;
-            border-radius: 10px;
-            margin-bottom: 15px;
-        }
-
-        .typing-dots {
-            display: inline-block;
-        }
-
-        .typing-dots span {
-            display: inline-block;
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: #667eea;
-            margin: 0 2px;
-            animation: typing 1.4s infinite ease-in-out;
-        }
-
-        .typing-dots span:nth-child(1) { animation-delay: -0.32s; }
-        .typing-dots span:nth-child(2) { animation-delay: -0.16s; }
-
-        .chart-container {
-            margin: 10px 0;
-            padding: 10px;
-            background: white;
-            border-radius: 8px;
-            border: 1px solid #e9ecef;
-        }
-
-        .chart-title {
-            font-weight: bold;
-            margin-bottom: 10px;
-            color: #333;
-        }
-
-        .chart-image {
-            max-width: 100%;
-            border: 1px solid #ddd;
-            border-radius: 5px;
-            margin: 5px 0;
-        }
-
-        .analysis-mode {
-            background: #e7f3ff;
-            border-left: 4px solid #1890ff;
-            padding: 10px;
-            margin: 10px 0;
-            border-radius: 4px;
-            font-size: 0.9em;
-        }
-
-        @keyframes typing {
-            0%, 80%, 100% { transform: scale(0); }
-            40% { transform: scale(1); }
-        }
-
-        @media (max-width: 768px) {
-            .main-content {
-                grid-template-columns: 1fr;
-            }
-            .upload-section {
-                border-right: none;
-                border-bottom: 1px solid #e9ecef;
-            }
-        }
-        .dataset-management {
-            background: #e9ecef;
-            padding: 15px;
-            border-radius: 8px;
-            margin-top: 15px;
-        }
-
-        .active-dataset {
-            background: white;
-            padding: 10px;
-            border-radius: 5px;
-            border-left: 4px solid #28a745;
-        }
-
-        .dataset-select {
-            border: 1px solid #ddd;
-            border-radius: 5px;
-        }
-
-        .dataset-item {
-            padding: 8px;
-            margin: 5px 0;
-            background: white;
-            border-radius: 5px;
-            border-left: 4px solid #007bff;
-            cursor: pointer;
-        }
-
-        .dataset-item:hover {
-            background: #f8f9fa;
-        }
-
-        .dataset-item.active {
-            border-left-color: #28a745;
-            background: #d4edda;
-        }
-        
-    </style>
+    <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link rel="stylesheet" href="/static/css/main.css">
 </head>
 <body>
-    <div class="container">
-        <div class="header">
-            <h1>🤖 Agentic Sales Assistant</h1>
-            <p>Upload CSV files and analyze your data using natural language</p>
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <div class="sidebar">
+            <div class="logo-container">
+                <img src="/static/image.png" alt="Revana Logo" class="app-logo">
+                <span class="logo-text">Revana</span>
+            </div>
+            
+            <button class="new-chat-btn" onclick="location.reload()">
+                <span>+</span> New Chat
+            </button>
+            
+            <nav class="nav-links">
+                <a href="#" class="nav-item active">
+                    <span>💬</span> Chat
+                </a>
+                {% if role == 'admin' %}
+                <!-- Admin Tools -->
+                <a href="#" onclick="document.getElementById('upload-modal').style.display='flex'" class="nav-item">
+                    <span>📁</span> Upload Dataset
+                </a>
+                <a href="#" onclick="handleOpenDatasets()" class="nav-item">
+                    <span>📚</span> Datasets
+                </a>
+                <a href="#" onclick="document.getElementById('user-modal').style.display='flex'" class="nav-item">
+                    <span>👥</span> User Mgmt
+                </a>
+                {% endif %}
+            </nav>
+            
+            <div class="user-profile">
+                <!-- Initials Avatar -->
+                <div class="avatar">{{ user.username[:2].upper() if user else '?' }}</div>
+                <div style="flex: 1; overflow: hidden;">
+                    <div style="font-weight: 500; font-size: 0.9em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                        {{ user.username if user else 'Guest' }}
+                    </div>
+                    <div style="font-size: 0.75em; color: var(--text-secondary);">
+                        {{ role|capitalize if role else '' }}
+                    </div>
+                </div>
+                <!-- Logout Icon -->
+                <a href="/logout" title="Logout" style="color: var(--text-secondary); text-decoration: none; padding: 4px;">
+                    <svg stroke="currentColor" fill="none" stroke-width="2" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round" height="16" width="16" xmlns="http://www.w3.org/2000/svg"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+                </a>
+            </div>
         </div>
 
+        <!-- Main Chat Area -->
         <div class="main-content">
-            <!-- Upload Section -->
-            <div class="upload-section">
-                <div class="upload-area" id="uploadArea">
-                    <div class="upload-icon">📁</div>
-                    <h3>Upload Your CSV File</h3>
-                    <p>Drag & drop your CSV file here or click to browse</p>
-                    <input type="file" id="fileInput" class="file-input" accept=".csv">
-                    <button class="upload-btn" id="uploadBtn" onclick="document.getElementById('fileInput').click()">
-                        Choose File
-                    </button>
-                </div>
-
-                <div id="uploadStatus"></div>
-
-                <div class="dataset-info" id="datasetInfo" style="display: none;">
-                    <h4>📊 Active Dataset</h4>
-                    <div id="datasetDetails"></div>
-                </div>
-
-                <div class="status-area" id="systemStatus">
-                    <h4>System Status</h4>
-                    <div id="statusMessage">Checking system status...</div>
-                </div>
-            </div>
-
-            <!-- Replace the existing dataset-info div with this: -->
-            <div class="dataset-management" id="datasetManagement">
-                <h4>📊 Dataset Management</h4>
-                
-                <div class="active-dataset" id="activeDatasetInfo">
-                    <strong>Active Dataset:</strong> <span id="activeDatasetName">None</span>
-                </div>
-                
-                <div class="dataset-list" id="datasetList" style="margin-top: 10px;">
-                    <label><strong>Available Datasets:</strong></label>
-                    <select id="datasetSelect" class="dataset-select" style="width: 100%; padding: 8px; margin: 5px 0;">
-                        <option value="">Select a dataset...</option>
-                    </select>
-                    <button class="upload-btn" id="setActiveBtn" style="margin-top: 5px;">Set as Active</button>
-                </div>
-            </div>
-
-            <!-- Chat Section -->
-            <div class="chat-section">
-                <div class="chat-messages" id="chatMessages">
-                    <div class="message assistant-message">
-                        <strong>🤖 Assistant</strong><br>
-                        Welcome! Upload a CSV file to start analyzing your data with natural language queries.
-                        <div class="analysis-mode">
-                            <strong>Try asking:</strong><br>
-                            • "Show me total sales by month"<br>
-                            • "What are the top 5 products by revenue?"<br>
-                            • "Analyze sales trends over time"<br>
-                            • "Compare sales between genders"
+            <div id="chat-container" class="chat-container">
+                <!-- Welcome Screen (Only visible initially) -->
+                <div class="welcome-screen animate-entry">
+                    <img src="/static/image.png" alt="Revana Logo" class="welcome-logo">
+                    <h1 class="welcome-title">Revana Sales Assistant</h1>
+                    <p>Ask me about sales trends, anomalies, or forecasts.</p>
+                    
+                    <div class="feature-grid">
+                        <div class="feature-card btn-3d" onclick="setQuery('Show me sales trend over time')">
+                            <h3>📈 Sales Trend</h3>
+                            <p>"Show me sales trend over time"</p>
+                        </div>
+                        <div class="feature-card btn-3d" onclick="setQuery('Are there any anomalies in sales?')">
+                            <h3>🚨 Anomalies</h3>
+                            <p>"Any anomalies in sales?"</p>
+                        </div>
+                        <div class="feature-card btn-3d" onclick="setQuery('Forecast sales for next month')">
+                            <h3>🔮 Forecast</h3>
+                            <p>"Forecast sales for next month"</p>
                         </div>
                     </div>
                 </div>
+            </div>
 
-                <div class="chat-input-area">
-                    <input type="text" class="chat-input" id="chatInput" placeholder="Ask about your data..." disabled>
-                    <button class="send-btn" id="sendBtn" disabled>Send</button>
+            <div class="input-area">
+                <div class="input-wrapper">
+                    <textarea id="user-input" class="chat-input" placeholder="Send a message..." rows="1" onkeydown="handleEnter(event)"></textarea>
+                    <button class="send-btn" onclick="sendMessage()">
+                        <svg stroke="currentColor" fill="none" stroke-width="2" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round" height="16" width="16" xmlns="http://www.w3.org/2000/svg"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                    </button>
+                </div>
+                <div style="text-align: center; font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.5rem;">
+                    Revana AI may produce inaccurate information about people, places, or facts.
                 </div>
             </div>
         </div>
     </div>
+    
+    <!-- Upload Modal -->
+    <div id="upload-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:1000; justify-content:center; align-items:center;">
+        <div style="background:var(--bg-secondary); padding:2rem; border-radius:8px; width:400px; box-shadow:var(--shadow-lg); border: 1px solid var(--border-color);">
+            <h2 style="margin-bottom:1rem;">Upload Dataset</h2>
+            <form id="upload-form" onsubmit="handleUpload(event)">
+                <div style="margin-bottom: 1rem; border: 2px dashed var(--border-color); padding: 2rem; text-align: center; border-radius: 6px; position: relative;">
+                    <input type="file" id="file-input" accept=".csv" required style="position: absolute; width: 100%; height: 100%; top: 0; left: 0; opacity: 0; cursor: pointer;">
+                    <p style="color: var(--text-secondary);">Click or drag CSV here</p>
+                    <div id="file-name-display" style="margin-top: 0.5rem; font-weight: bold; color: var(--accent-color);"></div>
+                </div>
+                <div style="display:flex; justify-content:flex-end; gap:0.5rem;">
+                    <button type="button" onclick="document.getElementById('upload-modal').style.display='none'" style="background:transparent; border:1px solid var(--border-color); color:var(--text-primary); padding:0.5rem 1rem; border-radius:4px; cursor:pointer;">Cancel</button>
+                    <button type="submit" class="btn-3d">Upload</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Dataset Selection Modal -->
+    <div id="dataset-modal" class="modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:1000; justify-content:center; align-items:center;">
+        <div class="modal-content" style="background:var(--bg-secondary); padding:2rem; border-radius:8px; width:600px; box-shadow:var(--shadow-lg); border: 1px solid var(--border-color);">
+            <h2 style="margin-bottom:1rem;">Select Active Dataset</h2>
+            <div id="dataset-list" style="max-height: 400px; overflow-y: auto; margin: 1rem 0;">
+                <!-- Datasets injected here -->
+                <div class="dataset-item-loading">Loading datasets...</div>
+            </div>
+            <div class="modal-actions" style="display:flex; justify-content:flex-end;">
+                <button type="button" onclick="document.getElementById('dataset-modal').style.display='none'" style="background:transparent; border:1px solid var(--border-color); color:var(--text-primary); padding:0.5rem 1rem; border-radius:4px; cursor:pointer;">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- User Management Modal -->
+    <div id="user-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:1000; justify-content:center; align-items:center;">
+        <div style="background:var(--bg-secondary); padding:2rem; border-radius:8px; width:400px; box-shadow:var(--shadow-lg); border: 1px solid var(--border-color);">
+            <h2 style="margin-bottom:1rem;">Create User</h2>
+            <form onsubmit="handleCreateUser(event)">
+                <input type="text" id="new-username" placeholder="Username" required style="width: 100%; padding: 0.75rem; margin-bottom: 0.75rem; background: var(--bg-tertiary); border: 1px solid var(--border-color); color: white; border-radius: 4px;">
+                <input type="password" id="new-password" placeholder="Password" required style="width: 100%; padding: 0.75rem; margin-bottom: 0.75rem; background: var(--bg-tertiary); border: 1px solid var(--border-color); color: white; border-radius: 4px;">
+                <select id="new-role" style="width: 100%; padding: 0.75rem; margin-bottom: 1.5rem; background: var(--bg-tertiary); border: 1px solid var(--border-color); color: white; border-radius: 4px;">
+                    <option value="sales">Sales</option>
+                    <option value="customer">Customer</option>
+                    <option value="admin">Admin</option>
+                </select>
+                <div style="display:flex; justify-content:flex-end; gap:0.5rem;">
+                    <button type="button" onclick="document.getElementById('user-modal').style.display='none'" style="background:transparent; border:1px solid var(--border-color); color:var(--text-primary); padding:0.5rem 1rem; border-radius:4px; cursor:pointer;">Cancel</button>
+                    <button type="submit" class="btn-3d">Create</button>
+                </div>
+            </form>
+        </div>
+    </div>
 
     <script>
-        // DOM Elements
-        const fileInput = document.getElementById('fileInput');
-        const uploadBtn = document.getElementById('uploadBtn');
-        const uploadArea = document.getElementById('uploadArea');
-        const uploadStatus = document.getElementById('uploadStatus');
-        const systemStatus = document.getElementById('systemStatus');
-        const statusMessage = document.getElementById('statusMessage');
-        const datasetInfo = document.getElementById('datasetInfo');
-        const datasetDetails = document.getElementById('datasetDetails');
-        const chatMessages = document.getElementById('chatMessages');
-        const chatInput = document.getElementById('chatInput');
-        const sendBtn = document.getElementById('sendBtn');
+        // --- DOM Elements ---
+        const chatContainer = document.getElementById('chat-container');
+        const userInput = document.getElementById('user-input');
+        const fileInput = document.getElementById('file-input');
 
-        // State
-        let currentDataset = null;
-        let isUploading = false;
-
-        // Initialize
-        document.addEventListener('DOMContentLoaded', function() {
-            checkHealth();
-            setupEventListeners();
-            loadDatasets();
+        // --- Event Listeners ---
+        
+        // Auto-resize textarea
+        userInput.addEventListener('input', function() {
+            this.style.height = 'auto';
+            this.style.height = (this.scrollHeight) + 'px';
+            if(this.value === '') this.style.height = 'auto';
         });
 
-        function setupEventListeners() {
-            // File input change
-            fileInput.addEventListener('change', handleFileSelect);
-            
-            // Drag and drop
-            uploadArea.addEventListener('dragover', (e) => {
+        // File input display name
+        if(fileInput) {
+            fileInput.addEventListener('change', function(e) {
+                if(e.target.files[0]) {
+                    document.getElementById('file-name-display').textContent = e.target.files[0].name;
+                }
+            });
+        }
+
+        function handleEnter(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
-                uploadArea.classList.add('highlight');
-            });
-
-            uploadArea.addEventListener('dragleave', () => {
-                uploadArea.classList.remove('highlight');
-            });
-
-            uploadArea.addEventListener('drop', (e) => {
-                e.preventDefault();
-                uploadArea.classList.remove('highlight');
-                const files = e.dataTransfer.files;
-                if (files.length > 0) {
-                    fileInput.files = files;
-                    handleFileSelect();
-                }
-            });
-
-            // Click upload area
-            uploadArea.addEventListener('click', () => {
-                fileInput.click();
-            });
-
-            // Chat input
-            chatInput.addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') {
-                    sendMessage();
-                }
-            });
-
-            // Send button
-            sendBtn.addEventListener('click', sendMessage);
-        }
-
-        function handleFileSelect() {
-            const file = fileInput.files[0];
-            if (file) {
-                if (file.type !== 'text/csv' && !file.name.endsWith('.csv')) {
-                    showStatus('Please select a CSV file.', 'error');
-                    return;
-                }
-                
-                uploadFile(file);
+                sendMessage();
             }
         }
 
-        async function uploadFile(file) {
-            if (isUploading) return;
+        function setQuery(text) {
+            userInput.value = text;
+            sendMessage();
+        }
+
+        // --- Chat Functions ---
+
+        function appendMessage(role, content, isHtml = false) {
+            // Remove welcome screen if it exists
+            const welcomeScreen = document.querySelector('.welcome-screen');
+            if (welcomeScreen) welcomeScreen.remove();
+
+            const msgDiv = document.createElement('div');
+            msgDiv.className = `message-row ${role}`;
             
-            isUploading = true;
-            updateUploadButton(true);
-            showStatus('Uploading file...', 'info');
-
-            const formData = new FormData();
-            formData.append('file', file);
-
-            try {
-                const response = await fetch('/upload', {
-                    method: 'POST',
-                    body: formData
-                });
-
-                const result = await response.json();
-
-                if (result.success) {
-                    showStatus(result.message, 'success');
-                    
-                    // Update the dataset info display
-                    if (result.dataset_info) {
-                        currentDataset = result.dataset_info;
-                        updateDatasetInfo(currentDataset);
-                    }
-                    
-                    // Reload the datasets list
-                    await loadDatasets();
-                    
-                    // Enable chat
-                    enableChat();
-                    
-                    // Refresh system status
-                    await checkHealth();
-                } else {
-                    showStatus(result.message, 'error');
-                }
-            } catch (error) {
-                console.error('Upload error:', error);
-                showStatus('Upload failed: ' + error.message, 'error');
-            } finally {
-                isUploading = false;
-                updateUploadButton(false);
+            // Avatar logic
+            let avatar = '';
+            if (role === 'assistant') {
+                avatar = '<img src="/static/image.png" class="message-avatar">';
+            } else {
+                // User avatar (simple initial)
+                avatar = '<div class="message-avatar" style="background: var(--accent-color); color: white; display:flex; align-items:center; justify-content:center; border-radius:2px; font-weight:bold;">U</div>';
             }
-        }
 
-        function updateUploadButton(uploading) {
-            if (uploadBtn) {
-                uploadBtn.disabled = uploading;
-                uploadBtn.textContent = uploading ? 'Uploading...' : 'Choose File';
-            }
-        }
-
-        function showStatus(message, type = 'info') {
-            if (!uploadStatus) return;
-            
-            uploadStatus.innerHTML = `
-                <div class="status-${type}">
-                    <strong>${type.toUpperCase()}:</strong> ${message}
+            msgDiv.innerHTML = `
+                <div class="message-content">
+                    ${avatar}
+                    <div class="message-text">${isHtml ? content : escapeHtml(content)}</div>
                 </div>
             `;
+            
+            chatContainer.appendChild(msgDiv);
+            
+            // Scroll to bottom
+            // We scroll the main-content (parent of chat-container's messages) or chat-container itself?
+            // In CSS: .chat-container is overflow-y: auto.
+            chatContainer.scrollTop = chatContainer.scrollHeight;
         }
 
-        function updateDatasetInfo(result) {
-            if (!datasetInfo || !datasetDetails) return;
-            
-            const datasetInfoData = result.dataset_info || result;
-            
-            datasetInfo.style.display = 'block';
-            datasetDetails.innerHTML = `
-                <p><strong>Table:</strong> ${datasetInfoData.table_name || 'N/A'}</p>
-                <p><strong>Records:</strong> ${datasetInfoData.row_count || 0} rows</p>
-                <p><strong>Columns:</strong> ${datasetInfoData.column_count || 0}</p>
-                <p><strong>Database:</strong> ${datasetInfoData.database || 'PostgreSQL'}</p>
-                ${datasetInfoData.columns ? `<p><strong>Columns:</strong> ${datasetInfoData.columns.join(', ')}</p>` : ''}
+        function showTyping() {
+            // Remove welcome screen if still there
+            const welcomeScreen = document.querySelector('.welcome-screen');
+            if (welcomeScreen) welcomeScreen.remove();
+
+            const id = 'typing-' + Date.now();
+            const msgDiv = document.createElement('div');
+            msgDiv.className = 'message-row assistant';
+            msgDiv.id = id;
+            msgDiv.innerHTML = `
+                <div class="message-content">
+                    <img src="/static/image.png" class="message-avatar">
+                    <div class="message-text">
+                        <div class="typing-indicator">
+                            <div class="typing-dot"></div>
+                            <div class="typing-dot"></div>
+                            <div class="typing-dot"></div>
+                        </div>
+                    </div>
+                </div>
             `;
+            chatContainer.appendChild(msgDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+            return id;
         }
 
-        function enableChat() {
-            if (chatInput && sendBtn) {
-                chatInput.disabled = false;
-                sendBtn.disabled = false;
-                chatInput.placeholder = "Ask about your sales data (e.g., 'show me total sales by month')...";
-            }
-        }
-
-        const semanticKeywords = ['similar', 'like', 'recommend', 'find products like', 'customers like', 'comparable', 'alternative', 'semantic', 'vector'];
-
-        function isSemanticQuery(message) {
-            return semanticKeywords.some(keyword => 
-                message.toLowerCase().includes(keyword)
-            );
+        function removeTyping(id) {
+            const el = document.getElementById(id);
+            if (el) el.remove();
         }
 
         async function sendMessage() {
-            const message = chatInput.value.trim();
-            if (!message || sendBtn.disabled) return;
+            const text = userInput.value.trim();
+            if (!text) return;
 
-            // Simple heuristic to detect query types
-            const dataKeywords = ['show', 'analyze', 'trend', 'chart', 'graph', 'sales', 'revenue', 'total', 'average', 'sum', 'count', 'by month', 'by category', 'compare', 'distribution', 'top', 'highest', 'lowest'];
-            const isDataQuery = dataKeywords.some(keyword => message.toLowerCase().includes(keyword));
-            const isSemantic = isSemanticQuery(message);
-            
-            if (isSemantic && currentDataset) {
-                await semanticSearch(message);
-            } else if (isDataQuery && currentDataset) {
-                await analyzeData();
-            } else {
-                await sendRegularMessage();
-            }
-        }
+            // Clear input
+            userInput.value = '';
+            userInput.style.height = 'auto';
 
-        async function semanticSearch(message) {
-            // Add user message to chat
-            addMessage(message, 'user');
-            chatInput.value = '';
-            chatInput.disabled = true;
-            sendBtn.disabled = true;
+            // User Message
+            appendMessage('user', text);
 
-            // Show typing indicator
-            const typingId = showTypingIndicator();
-
-            try {
-                const response = await fetch('/semantic-search', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        message: message,
-                        conversation_id: 'default'
-                    })
-                });
-
-                const result = await response.json();
-
-                // Remove typing indicator
-                removeTypingIndicator(typingId);
-
-                if (result.success) {
-                    addMessage(result.response, 'assistant');
-                } else {
-                    addMessage(`❌ ${result.error}`, 'assistant');
-                }
-
-            } catch (error) {
-                console.error('Semantic search error:', error);
-                removeTypingIndicator(typingId);
-                addMessage('Sorry, I encountered an error during semantic search.', 'assistant');
-            } finally {
-                chatInput.disabled = false;
-                sendBtn.disabled = false;
-                chatInput.focus();
-            }
-        }
-
-        // Dataset Management Functions
-        async function loadDatasets() {
-            try {
-                const response = await fetch('/datasets');
-                const result = await response.json();
-                
-                if (result.success) {
-                    updateDatasetUI(result.datasets, result.active_dataset);
-                }
-            } catch (error) {
-                console.error('Error loading datasets:', error);
-            }
-        }
-
-        function updateDatasetUI(datasets, activeDataset) {
-            const datasetManagement = document.getElementById('datasetManagement');
-            const activeDatasetName = document.getElementById('activeDatasetName');
-            const datasetSelect = document.getElementById('datasetSelect');
-            
-            if (datasets.length > 0) {
-                datasetManagement.style.display = 'block';
-                
-                // Update active dataset
-                if (activeDataset) {
-                    activeDatasetName.textContent = `${activeDataset.table_name} (${activeDataset.row_count} rows)`;
-                    currentDataset = activeDataset;
-                    enableChat();
-                } else {
-                    activeDatasetName.textContent = 'None';
-                }
-                
-                // Update dataset dropdown
-                datasetSelect.innerHTML = '<option value="">Select a dataset...</option>';
-                datasets.forEach(dataset => {
-                    const option = document.createElement('option');
-                    option.value = dataset.table_name;
-                    option.textContent = `${dataset.table_name} (${dataset.row_count} rows)`;
-                    if (activeDataset && dataset.table_name === activeDataset.table_name) {
-                        option.selected = true;
-                    }
-                    datasetSelect.appendChild(option);
-                });
-            } else {
-                datasetManagement.style.display = 'none';
-            }
-        }
-
-        async function setActiveDataset(tableName) {
-            try {
-                const response = await fetch('/datasets/active', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        table_name: tableName
-                    })
-                });
-                
-                const result = await response.json();
-                
-                if (result.success) {
-                    showStatus(`Dataset '${tableName}' is now active`, 'success');
-                    await loadDatasets(); // Refresh the list
-                } else {
-                    showStatus(`Failed to set active dataset: ${result.error}`, 'error');
-                }
-            } catch (error) {
-                console.error('Error setting active dataset:', error);
-                showStatus('Error setting active dataset', 'error');
-            }
-        }
-
-        // Update your existing functions
-        function updateDatasetInfo(result) {
-            if (!datasetInfo || !datasetDetails) return;
-            
-            const datasetInfoData = result.dataset_info || result;
-            
-            datasetInfo.style.display = 'block';
-            datasetDetails.innerHTML = `
-                <p><strong>Table:</strong> ${datasetInfoData.table_name || 'N/A'}</p>
-                <p><strong>Records:</strong> ${datasetInfoData.row_count || 0} rows</p>
-                <p><strong>Columns:</strong> ${datasetInfoData.column_count || 0}</p>
-                <p><strong>Database:</strong> ${datasetInfoData.database || 'PostgreSQL'}</p>
-                ${datasetInfoData.columns ? `<p><strong>Columns:</strong> ${datasetInfoData.columns.join(', ')}</p>` : ''}
-            `;
-            
-            // Load all datasets after upload
-            loadDatasets();
-        }
-
-        // Update health check to load datasets
-        async function checkHealth() {
-            try {
-                const response = await fetch('/health');
-                const result = await response.json();
-                
-                if (statusMessage) {
-                    let statusHTML = `<span style="color: #28a745;">✅ ${result.message}</span><br>`;
-                    statusHTML += `<small>Database: ${result.database || 'PostgreSQL'}</small><br>`;
-                    statusHTML += `<small>Active Datasets: ${result.available_datasets_count || 0}</small>`;
-                    
-                    if (result.active_dataset) {
-                        statusHTML += `<br><small>Active: ${result.active_dataset.table_name}</small>`;
-                    }
-                    
-                    statusMessage.innerHTML = statusHTML;
-                }
-
-                // Load datasets on health check
-                await loadDatasets();
-
-            } catch (error) {
-                console.error('Health check failed:', error);
-                if (statusMessage) {
-                    statusMessage.innerHTML = `<span style="color: #dc3545;">❌ Service unavailable</span>`;
-                }
-            }
-        }
-
-        // Add event listeners
-        document.addEventListener('DOMContentLoaded', function() {
-            // Existing code...
-            
-            // Add dataset management event listeners
-            const setActiveBtn = document.getElementById('setActiveBtn');
-            const datasetSelect = document.getElementById('datasetSelect');
-            
-            if (setActiveBtn) {
-                setActiveBtn.addEventListener('click', function() {
-                    const selectedDataset = datasetSelect.value;
-                    if (selectedDataset) {
-                        setActiveDataset(selectedDataset);
-                    }
-                });
-            }
-        });
-
-        async function sendRegularMessage() {
-            const message = chatInput.value.trim();
-            
-            // Add user message to chat
-            addMessage(message, 'user');
-            chatInput.value = '';
-            chatInput.disabled = true;
-            sendBtn.disabled = true;
-
-            // Show typing indicator
-            const typingId = showTypingIndicator();
+            // Typing Indicator
+            const typingId = showTyping();
 
             try {
                 const response = await fetch('/chat', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        message: message,
-                        conversation_id: 'default'
-                    })
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: text })
                 });
-
-                const result = await response.json();
-
-                // Remove typing indicator
-                removeTypingIndicator(typingId);
-
-                // Add assistant response
-                addMessage(result.response, 'assistant', result);
-
-            } catch (error) {
-                console.error('Chat error:', error);
-                removeTypingIndicator(typingId);
-                addMessage('Sorry, I encountered an error. Please try again.', 'assistant');
-            } finally {
-                chatInput.disabled = false;
-                sendBtn.disabled = false;
-                chatInput.focus();
-            }
-        }
-
-        async function analyzeData() {
-            const message = chatInput.value.trim();
-            
-            // Add user message to chat
-            addMessage(message, 'user');
-            chatInput.value = '';
-            chatInput.disabled = true;
-            sendBtn.disabled = true;
-
-            // Show typing indicator
-            const typingId = showTypingIndicator();
-
-            try {
-                const response = await fetch('/analyze', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        message: message,
-                        conversation_id: 'default'
-                    })
-                });
-
-                const result = await response.json();
-
-                // Remove typing indicator
-                removeTypingIndicator(typingId);
-
-                if (result.success) {
-                    // Add analysis response
-                    addMessage(result.response, 'assistant');
-                    
-                    // Display charts if available
-                    if (result.charts && Object.keys(result.charts).length > 0) {
-                        displayCharts(result.charts);
-                    }
-                } else {
-                    addMessage(`❌ ${result.error}`, 'assistant');
-                }
-
-            } catch (error) {
-                console.error('Analysis error:', error);
-                removeTypingIndicator(typingId);
-                addMessage('Sorry, I encountered an error during analysis. Please try again.', 'assistant');
-            } finally {
-                chatInput.disabled = false;
-                sendBtn.disabled = false;
-                chatInput.focus();
-            }
-        }
-
-        function displayCharts(charts) {
-            if (!chatMessages) return;
-            
-            const chartsDiv = document.createElement('div');
-            chartsDiv.className = 'message assistant-message';
-            chartsDiv.innerHTML = '<strong>📈 Generated Charts:</strong><br>';
-            
-            Object.entries(charts).forEach(([chartType, chartData]) => {
-                if (chartData) {
-                    const chartTitle = getChartTitle(chartType);
-                    chartsDiv.innerHTML += `
-                        <div class="chart-container">
-                            <div class="chart-title">${chartTitle}</div>
-                            <img src="data:image/png;base64,${chartData}" class="chart-image" />
-                        </div>
-                    `;
-                }
-            });
-            
-            chatMessages.appendChild(chartsDiv);
-            chatMessages.scrollTop = chatMessages.scrollHeight;
-        }
-
-        function getChartTitle(chartType) {
-            const titles = {
-                'trend': '📈 Trend Analysis',
-                'bar': '📊 Category Comparison',
-                'pie': '🥧 Distribution',
-                'distribution': '📋 Data Distribution'
-            };
-            return titles[chartType] || 'Chart';
-        }
-
-        function addMessage(content, sender, metadata = null) {
-            if (!chatMessages) return;
-            
-            const messageDiv = document.createElement('div');
-            messageDiv.className = `message ${sender}-message`;
-            
-            let messageHTML = `<strong>${sender === 'user' ? '👤 You' : '🤖 Assistant'}</strong><br>`;
-            
-            // Format the message content
-            messageHTML += formatMessageContent(content);
-            
-            // Add metadata if available
-            if (metadata && sender === 'assistant') {
-                if (metadata.agents_used && metadata.agents_used.length > 0) {
-                    messageHTML += `<br><small>Agents: ${metadata.agents_used.map(agent => `<span class="agent-tag">${agent}</span>`).join('')}</small>`;
-                }
-                if (metadata.has_dataset) {
-                    messageHTML += `<br><small>📊 Using uploaded dataset</small>`;
-                }
-            }
-            
-            messageDiv.innerHTML = messageHTML;
-            chatMessages.appendChild(messageDiv);
-            chatMessages.scrollTop = chatMessages.scrollHeight;
-        }
-
-        function formatMessageContent(content) {
-            // Convert markdown-style formatting to HTML
-            return content
-                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-                .replace(/\*(.*?)\*/g, '<em>$1</em>')
-                .replace(/`(.*?)`/g, '<code>$1</code>')
-                .replace(/\n/g, '<br>');
-        }
-
-        function showTypingIndicator() {
-            if (!chatMessages) return null;
-            
-            const typingDiv = document.createElement('div');
-            typingDiv.className = 'typing-indicator';
-            typingDiv.id = 'typing-indicator';
-            typingDiv.innerHTML = `
-                <strong>🤖 Assistant</strong><br>
-                <div class="typing-dots">
-                    <span></span>
-                    <span></span>
-                    <span></span>
-                </div>
-            `;
-            chatMessages.appendChild(typingDiv);
-            chatMessages.scrollTop = chatMessages.scrollHeight;
-            return 'typing-indicator';
-        }
-
-        function removeTypingIndicator(id) {
-            if (!id) return;
-            const element = document.getElementById(id);
-            if (element) {
-                element.remove();
-            }
-        }
-
-        async function checkHealth() {
-            try {
-                const response = await fetch('/health');
-                const result = await response.json();
                 
-                if (statusMessage) {
-                    let statusHTML = `<span style="color: #28a745;">✅ ${result.message}</span><br>`;
-                    statusHTML += `<small>Database: ${result.database || 'PostgreSQL'}</small><br>`;
-                    statusHTML += `<small>Tables: ${result.table_count || 0} active</small>`;
+                const data = await response.json();
+                removeTyping(typingId);
+
+                if (data.error) {
+                    appendMessage('assistant', '<span style="color:var(--error-color)">Error: ' + data.error + '</span>', true);
+                } else {
+                    // Render response: text + any plots
+                    let finalHtml = marked.parse(data.response || "");
                     
-                    // Show table names if available
-                    if (result.tables && result.tables.length > 0) {
-                        statusHTML += `<br><small>Latest Table: ${result.tables[0]}</small>`;
+                    // Append charts if any
+                    if (data.plot_html) {
+                        finalHtml += `<div style="margin-top:1rem; border:1px solid var(--border-color); border-radius:8px; padding:10px; background:white; color:black;">${data.plot_html}</div>`;
                     }
                     
-                    statusMessage.innerHTML = statusHTML;
-                }
+                    // Handle charts - can be array or object
+                    if (data.charts) {
+                        if (Array.isArray(data.charts)) {
+                            // Legacy array format
+                            data.charts.forEach(chart => {
+                                finalHtml += `<img src="data:image/png;base64,${chart}" style="max-width:100%; margin-top:1rem; border-radius:8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">`;
+                            });
+                        } else if (typeof data.charts === 'object') {
+                            // New object format: {pie: "base64...", bar: "base64...", etc}
+                            Object.entries(data.charts).forEach(([chartType, chartData]) => {
+                                if (chartData) {
+                                    finalHtml += `<div style="margin-top:1rem;"><h4 style="color: var(--text-primary); margin-bottom:0.5rem;">${chartType.charAt(0).toUpperCase() + chartType.slice(1)} Chart</h4><img src="data:image/png;base64,${chartData}" style="max-width:100%; border-radius:8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);"></div>`;
+                                }
+                            });
+                        }
+                    }
 
-                // If we have tables but no current dataset, enable chat
-                if (result.table_count > 0 && !currentDataset) {
-                    enableChat();
-                    if (datasetInfo) {
-                        datasetInfo.style.display = 'block';
-                        datasetDetails.innerHTML = `
-                            <p>Using existing database tables</p>
-                            <p><strong>Total Tables:</strong> ${result.table_count}</p>
-                            <p><strong>Latest Table:</strong> ${result.tables ? result.tables[0] : 'N/A'}</p>
-                        `;
+                    appendMessage('assistant', finalHtml, true);
+                    
+                    // Re-evaluate scripts for Plotly in the last added message
+                    // We need to find the scripts recursively in the last message-row
+                    const lastMsg = chatContainer.lastElementChild;
+                    if(lastMsg) {
+                        const scripts = lastMsg.querySelectorAll('script');
+                        scripts.forEach(oldScript => {
+                            const newScript = document.createElement('script');
+                            Array.from(oldScript.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value));
+                            newScript.appendChild(document.createTextNode(oldScript.innerHTML));
+                            oldScript.parentNode.replaceChild(newScript, oldScript);
+                        });
                     }
                 }
 
-            } catch (error) {
-                console.error('Health check failed:', error);
-                if (statusMessage) {
-                    statusMessage.innerHTML = `<span style="color: #dc3545;">❌ Service unavailable</span>`;
-                }
+            } catch (err) {
+                removeTyping(typingId);
+                appendMessage('assistant', 'Connection error. Please check your network.', false);
+                console.error(err);
             }
         }
 
-        // Periodically check health
-        setInterval(checkHealth, 30000); // Every 30 seconds
+        // --- Admin Functions ---
+
+        async function handleUpload(e) {
+            e.preventDefault();
+            const input = document.getElementById('file-input');
+            const file = input.files[0];
+            if (!file) return;
+
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            // Change button text to show loading
+            const btn = e.target.querySelector('button[type="submit"]');
+            const originalText = btn.textContent;
+            btn.textContent = "Uploading...";
+            btn.disabled = true;
+
+            try {
+                const res = await fetch('/upload', { method:'POST', body: formData });
+                const data = await res.json();
+                if (data.success) {
+                    alert("Upload Successful!");
+                    document.getElementById('upload-modal').style.display = 'none';
+                    location.reload(); 
+                } else {
+                    alert("Upload Failed: " + (data.message || data.error));
+                }
+            } catch(err) {
+                alert("Upload Error: " + err);
+            } finally {
+                btn.textContent = originalText;
+                btn.disabled = false;
+            }
+        }
+
+        async function handleCreateUser(e) {
+            e.preventDefault();
+            const username = document.getElementById('new-username').value;
+            const password = document.getElementById('new-password').value;
+            const role = document.getElementById('new-role').value;
+
+            try {
+                const res = await fetch('/admin/users', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ username, password, role })
+                });
+                const data = await res.json();
+                if(data.success) {
+                    alert("User Created!");
+                    document.getElementById('user-modal').style.display = 'none';
+                } else {
+                    alert("Error: " + data.error);
+                }
+            } catch(err) {
+                alert("Request Error");
+            }
+        }
+
+        async function handleOpenDatasets() {
+            document.getElementById('dataset-modal').style.display = 'flex';
+            await loadDatasets();
+        }
+
+        async function loadDatasets() {
+            const listEl = document.getElementById('dataset-list');
+            listEl.innerHTML = '<div class="dataset-item-loading">Loading...</div>';
+            
+            try {
+                const res = await fetch('/datasets');
+                const data = await res.json();
+                if (data.success) {
+                    renderDatasetList(data.datasets, data.active_dataset);
+                } else {
+                    listEl.innerHTML = '<div style="color:var(--error-color)">Failed to load datasets</div>';
+                }
+            } catch(e) {
+                listEl.innerHTML = '<div style="color:var(--error-color)">Connection error</div>';
+            }
+        }
+
+        function renderDatasetList(datasets, active) {
+            const listEl = document.getElementById('dataset-list');
+            listEl.innerHTML = '';
+
+            if (datasets.length === 0) {
+                 listEl.innerHTML = '<div style="padding:1rem; text-align:center; color:var(--text-secondary)">No datasets found. Upload one!</div>';
+                 return;
+            }
+
+            datasets.forEach(ds => {
+                const div = document.createElement('div');
+                const isActive = active && active.table_name === ds.table_name;
+                div.className = 'dataset-item ' + (isActive ? 'active' : '');
+                div.style.cssText = `
+                    padding: 1rem;
+                    border: 1px solid var(--border-color);
+                    border-radius: 6px;
+                    margin-bottom: 0.5rem;
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    background-color: ${isActive ? 'rgba(16, 163, 127, 0.1)' : 'transparent'};
+                    cursor: pointer;
+                    transition: all 0.2s;
+                `;
+                if(isActive) div.style.borderColor = 'var(--accent-color)';
+                
+                div.onclick = () => selectDataset(ds.table_name);
+
+                div.innerHTML = `
+                    <div>
+                        <div style="font-weight:600; color:var(--text-primary)">${escapeHtml(ds.original_filename)}</div>
+                        <div style="font-size:0.85rem; color:var(--text-secondary)">
+                            ${ds.row_count} rows • ${new Date(ds.upload_date).toLocaleDateString()}
+                        </div>
+                    </div>
+                    ${isActive ? '<span style="color:var(--accent-color); font-weight:bold;">Active</span>' : ''}
+                `;
+                listEl.appendChild(div);
+            });
+        }
+
+        async function selectDataset(tableName) {
+            try {
+                const res = await fetch('/datasets/active', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ table_name: tableName })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    // Refresh list to show new active
+                    await loadDatasets();
+                    // Optional: Close modal automatically? No, let user verify.
+                    // alert("Active dataset updated: " + data.active_dataset.original_filename); 
+                    // Refresh background page content? 
+                    // Maybe just update welcome message or something.
+                } else {
+                    alert("Failed to set active dataset: " + data.error);
+                }
+            } catch(e) {
+                alert("Error setting active dataset");
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
     </script>
 </body>
 </html>

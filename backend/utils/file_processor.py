@@ -71,6 +71,10 @@ class FileProcessor:
             df = pd.read_csv(temp_file_path)
             logger.info(f"✅ CSV loaded: {len(df)} rows, {len(df.columns)} columns")
 
+             # convert date columns (For Anomaly Agent)
+            df = self.convert_date_columns(df)
+            logger.info(f"✅ Date columns processed")
+            
             # Auto-detect and convert date columns
             df = self.convert_date_columns(df)
             logger.info(f"✅ Date columns processed")
@@ -202,6 +206,32 @@ class FileProcessor:
         clean = "_".join(filter(None, clean.split("_")))
         return clean.lower()
     
+    def convert_date_columns(self, df):
+        """Auto-detect and convert date columns to datetime"""
+        for col in df.columns:
+            # Check if column name suggests it's a date
+            col_lower = col.lower()
+            if 'date' in col_lower or 'time' in col_lower:
+                try:
+                    df[col] = pd.to_datetime(df[col], errors='coerce')
+                    logger.info(f"✅ Converted column '{col}' to datetime")
+                except Exception as e:
+                    logger.warning(f"⚠️ Could not convert '{col}' to datetime: {e}")
+            # Also try to detect date-like string patterns
+            elif df[col].dtype == 'object':
+                try:
+                    # Try to parse a sample - if it works, convert the whole column
+                    sample = df[col].dropna().head(5)
+                    if len(sample) > 0:
+                        test_convert = pd.to_datetime(sample, errors='coerce')
+                        # If more than 80% successfully converted, it's likely a date column
+                        if test_convert.notna().sum() / len(sample) > 0.8:
+                            df[col] = pd.to_datetime(df[col], errors='coerce')
+                            logger.info(f"✅ Auto-detected and converted column '{col}' to datetime")
+                except:
+                    pass
+        return df
+    
     def map_pandas_to_postgres_type(self, pandas_dtype):
         """Map pandas data types to PostgreSQL types"""
         dtype_str = str(pandas_dtype)
@@ -250,12 +280,12 @@ class FileProcessor:
             row_count = row_result.iloc[0]['count'] if not row_result.empty else 0
             
             # Get column count and names
-            column_query = """
+            column_query = f"""
                 SELECT column_name 
                 FROM information_schema.columns 
-                WHERE table_name = %s AND table_schema = 'public'
+                WHERE table_name = '{table_name}' AND table_schema = 'public'
             """
-            column_result = db_manager.execute_query(column_query, (table_name,))
+            column_result = db_manager.execute_query(column_query)
             column_count = len(column_result) if not column_result.empty else 0
             columns = column_result['column_name'].tolist() if not column_result.empty else []
             

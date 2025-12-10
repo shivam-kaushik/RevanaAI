@@ -21,7 +21,7 @@ class IntentDetector:
         - Requests for analysis, insights, summaries
         - Queries about specific metrics or KPIs
         - Requests for predictions, forecasts
-        - Looking for anomalies or unusual patterns
+        - ANY questions asking about anomalies, outliers, unusual patterns, irregularities, spikes, or drops (e.g., "Are there any anomalies?", "Show anomalies", "Find outliers", "Any unusual patterns?")
         - Asking for charts, graphs, visualizations
         - Searching for products, items, or best products
         - Looking for customers, users, or similar customers
@@ -29,6 +29,7 @@ class IntentDetector:
         - Questions about specific customers or customer segments
         - Queries about product recommendations or similarities
         - Queries about customer behavior or preferences
+        - Questions about sales, revenue, transactions, purchases, orders
         
         Conversational Intent (use ChatGPT directly):
         - Greetings, small talk
@@ -48,10 +49,18 @@ class IntentDetector:
         
         Available agents: SQL_AGENT, INSIGHT_AGENT, FORECAST_AGENT, ANOMALY_AGENT, VISUALIZATION_AGENT, VECTOR_AGENT
         
-        IMPORTANT: 
-        - Queries asking for "best products", "find products", "show me products", etc. should use VECTOR_AGENT
-        - Queries asking for "similar customers", "find customers", etc. should use VECTOR_AGENT
-        - These are DATA QUERIES, not conversational queries
+        IMPORTANT RULES: 
+        - SQL_AGENT is REQUIRED for all data analysis queries (except pure VECTOR_AGENT searches)
+        - ANOMALY_AGENT requires SQL_AGENT to fetch data first: ["SQL_AGENT", "ANOMALY_AGENT", "INSIGHT_AGENT"]
+        - INSIGHT_AGENT typically works with data from SQL_AGENT: ["SQL_AGENT", "INSIGHT_AGENT"]
+        - FORECAST_AGENT can work independently (has built-in SQL capability)
+        - VISUALIZATION_AGENT requires SQL_AGENT to fetch data first: ["SQL_AGENT", "VISUALIZATION_AGENT", "INSIGHT_AGENT"]
+        - ANY request for charts/graphs (pie chart, bar chart, line chart, etc.) MUST include: ["SQL_AGENT", "VISUALIZATION_AGENT", "INSIGHT_AGENT"]
+        - Queries asking for "best products", "find products", "show me products", etc. should use VECTOR_AGENT only
+        - Queries asking for "similar customers", "find customers", etc. should use VECTOR_AGENT only
+        - ANY question about anomalies, outliers, unusual patterns, spikes, drops, or irregularities MUST return: ["SQL_AGENT", "ANOMALY_AGENT", "INSIGHT_AGENT"]
+        - "Are there any anomalies?", "Show anomalies", "Find outliers", "Any unusual patterns in sales?", "Detect anomalies" are ALL anomaly detection queries requiring data analysis
+        - Questions about "sales", "revenue", "transactions" combined with anomaly keywords are ALWAYS data analysis queries
         """
     
     def detect_intent(self, user_query, has_active_dataset=True):
@@ -82,9 +91,15 @@ class IntentDetector:
         """Fallback intent detection using keyword matching"""
         query_lower = user_query.lower()
         
-        # Check if it's conversational
-        conversational_keywords = ['hello', 'hi', 'hey', 'how are you', 'what can you do', 'help', 'thank you']
-        if any(keyword in query_lower for keyword in conversational_keywords) or len(query_lower.split()) < 3:
+        # First check for data analysis keywords (higher priority than conversational)
+        data_analysis_keywords = ['sales', 'revenue', 'transaction', 'purchase', 'order', 'customer', 
+                                 'product', 'data', 'trend', 'pattern', 'analysis', 'insight',
+                                 'anomal', 'outlier', 'forecast', 'predict', 'chart', 'graph']
+        has_data_context = any(keyword in query_lower for keyword in data_analysis_keywords)
+        
+        # Check if it's conversational (but only if no data context)
+        conversational_keywords = ['hello', 'hi', 'hey', 'how are you', 'what can you do', 'thank you']
+        if not has_data_context and (any(keyword in query_lower for keyword in conversational_keywords) or len(query_lower.split()) < 3):
             return {
                 "is_data_query": False,
                 "primary_intent": "conversational",
@@ -129,16 +144,23 @@ class IntentDetector:
         if any(keyword in query_lower for keyword in forecast_keywords):
             agents.append("FORECAST_AGENT")
         
-        anomaly_keywords = ['anomaly', 'outlier', 'unusual', 'strange', 'spike', 'drop', 'unexpected']
+        # More comprehensive anomaly detection keywords
+        anomaly_keywords = ['anomal', 'outlier', 'unusual', 'strange', 'spike', 'drop', 'unexpected', 
+                           'irregularit', 'aberration', 'deviation', 'abnormal', 'irregularities']
         if any(keyword in query_lower for keyword in anomaly_keywords):
             agents.append("ANOMALY_AGENT")
+            # Anomaly detection always needs insight agent too
+            if "INSIGHT_AGENT" not in agents:
+                agents.append("INSIGHT_AGENT")
         
-        viz_keywords = ['chart', 'graph', 'plot', 'visualize', 'show me', 'display']
+        viz_keywords = ['chart', 'graph', 'plot', 'visualize', 'visualization', 'pie', 'bar', 'line', 'scatter']
         if any(keyword in query_lower for keyword in viz_keywords):
-            agents.append("VISUALIZATION_AGENT")
+            if "VISUALIZATION_AGENT" not in agents:
+                agents.append("VISUALIZATION_AGENT")
         
         # Always include insight agent for data analysis
-        agents.append("INSIGHT_AGENT")
+        if "INSIGHT_AGENT" not in agents:
+            agents.append("INSIGHT_AGENT")
         
         return {
             "is_data_query": True,

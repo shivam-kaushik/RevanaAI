@@ -16,12 +16,13 @@ class PlannerAgent:
             "VECTOR_AGENT": "Performs semantic search for products and customers"
         }
     
-    def create_plan(self, user_query):
+    def create_plan(self, user_query, has_active_dataset=None):
         """Create an execution plan based on user query"""
         print(f"🔍 Planning for query: {user_query}")
         
-        # Check if we have an active dataset
-        has_active_dataset = vector_db.get_active_dataset() is not None
+        # Check if we have an active dataset (use provided value or check vector_db)
+        if has_active_dataset is None:
+            has_active_dataset = vector_db.get_active_dataset() is not None
         
         # Step 1: Detect intent
         intent_result = self.intent_detector.detect_intent(user_query, has_active_dataset)
@@ -59,9 +60,30 @@ class PlannerAgent:
             })
             return execution_steps
 
-        if "FORECAST_AGENT" in agents and "SQL_AGENT" not in agents:
-            agents = ["SQL_AGENT"] + agents
+        #if "FORECAST_AGENT" in agents and "SQL_AGENT" not in agents:
+            #agents = ["SQL_AGENT"] + agents
         
+        # ------- New forecast approaches ---------
+        q = intent_result.get("user_query", "").lower()
+
+        # NEW: if user explicitly asks to predict/forecast for N periods, run forecast end-to-end
+        if any(k in q for k in ["predict", "forecast", "projection", "next ", "future"]):
+            return [{
+                "step": 1,
+                "agent": "FORECAST_AGENT",
+                "description": "End-to-end forecast (NL→SQL→fetch→Prophet→viz→summary)",
+                "dependencies": []
+            }]
+        # Special case: VECTOR_AGENT only (semantic search)
+        if "FORECAST_AGENT" in agents:
+            execution_steps.append({
+                "step": 1,
+                "agent": "FORECAST_AGENT",
+                "description": "End-to-end forecast (NL→SQL→fetch→Prophet→viz→summary)",
+                "dependencies": []
+            })
+            return execution_steps
+        # ------------------------------------------
         # Always start with SQL agent for data queries (except vector-only)
         if "SQL_AGENT" in agents:
             execution_steps.append({
